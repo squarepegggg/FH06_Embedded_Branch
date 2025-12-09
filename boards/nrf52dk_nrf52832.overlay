@@ -1,0 +1,71 @@
+/* STEP 2.1 - Create an overlay file for your board */
+
+/{
+    inputs {
+        compatible = "gpio-keys";
+        bmaint1: bmaint_1 {
+            gpios = <&gpio0 27 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+            label = "BMA400 Interrupt 1";
+        };
+    };
+
+    aliases {
+        int1 = &bmaint1;
+    };
+};
+
+/* STEP 2.2 - Change the pin configuration */
+&i2c0 {	status = "disabled";};
+&spi0 {	status = "disabled";};
+&i2c1 {	status = "disabled";}; 
+&uart0 { status = "disabled";}; 
+&spi2 { status = "disabled";};
+&pwm0 { status = "disabled";};
+&adc { status = "disabled";};
+&gpio0 {
+	status = "okay";
+	sense-edge-mask = < 0xffffffff >;
+};
+&spi1 {
+ compatible = "nordic,nrf-spi"; //using SPI as per ERRATA 58
+ status = "okay";
+ pinctrl-0 = <&spi1_default>;
+ pinctrl-1 = <&spi1_sleep>;
+ pinctrl-names = "default", "sleep";
+ cs-gpios = <&gpio0 26 GPIO_ACTIVE_LOW>;
+ bma400: bma400@0 {
+ compatible = "bosch,bma4xx";
+ reg = <0>;
+ spi-max-frequency = <1000000>; 
+ };
+};
+
+&pinctrl {
+ spi1_default: spi1_default {
+ group1 {
+ psels = <NRF_PSEL(SPIM_SCK, 0, 28)>, 
+ <NRF_PSEL(SPIM_MOSI, 0, 29)>,
+ <NRF_PSEL(SPIM_MISO, 0, 30)>;
+ };
+ };
+ spi1_sleep: spi1_sleep {
+ group1 {
+ psels = <NRF_PSEL(SPIM_SCK, 0, 28)>,
+ <NRF_PSEL(SPIM_MOSI, 0, 29)>,
+ <NRF_PSEL(SPIM_MISO, 0, 30)>;
+ low-power-enable;
+ };
+ };
+};
+
+/*
+
+
+INT1	P0.03	P0.27
+SCK	P0.06	P0.28
+MOSI	P0.04	P0.29
+MISO	P0.05	P0.30
+CS	P0.07	P0.26
+
+
+*/
