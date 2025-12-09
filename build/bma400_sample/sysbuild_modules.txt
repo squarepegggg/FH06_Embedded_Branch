@@ -1,0 +1,2 @@
+"nrf":"/home/nrg-gluon/ncs/v3.1.1/nrf":"/home/nrg-gluon/ncs/v3.1.1/nrf/sysbuild"
+"mcuboot":"/home/nrg-gluon/ncs/v3.1.1/bootloader/mcuboot":"/home/nrg-gluon/ncs/v3.1.1/bootloader/mcuboot/boot/zephyr/sysbuild"

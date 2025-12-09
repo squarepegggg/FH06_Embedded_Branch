@@ -1,0 +1,2 @@
+# Load Zephyr board Kconfig descriptions.
+osource "/home/nrg-gluon/ncs/v3.1.1/zephyr/boards/nordic/nrf52dk/Kconfig"

@@ -1,0 +1,7 @@
+default: bma400_sample
+build_dir: /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build
+domains:
+  - name: bma400_sample
+    build_dir: /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample
+flash_order:
+  - bma400_sample
