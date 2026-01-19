@@ -39,6 +39,11 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
+  include("/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/modules/nrf/subsys/bluetooth/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
   include("/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/modules/nrf/subsys/net/cmake_install.cmake")
 endif()
 
