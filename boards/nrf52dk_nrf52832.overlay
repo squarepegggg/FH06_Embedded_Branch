@@ -26,6 +26,7 @@
 	status = "okay";
 	sense-edge-mask = < 0xffffffff >;
 };
+
 &spi1 {
  compatible = "nordic,nrf-spi"; //using SPI as per ERRATA 58
  status = "okay";

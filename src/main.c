@@ -14,6 +14,110 @@
 #include "bma400.h"
 #include "bma400_defs.h"
 
+//BLE STUFF
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/gap.h>
+
+// BLE STUFF
+#define DEVICE_NAME       CONFIG_BT_DEVICE_NAME
+#define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)
+#define BT_UUID_ACCEL_SERVICE_VAL \ 
+	BT_UUID_128_ENCODE(0x12345678,0x1234,0x5678,0x1234,0x1234567890ab)
+
+#define BT_UUID_ACCEL_CHAR_VAL \
+	BT_UUID_128_ENCODE(0x12345679,0x1234,0x5678,0x1234,0x1234567890ab)
+
+static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);
+static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	
+
+static uint8_t accel_value[6] = {0};
+
+static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
+
+	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
+	printk("Accel notifications %s\n",notif_enabled ? "enabled" : "disabled");
+}
+
+BT_GATT_SERVICE_DEFINE(accel_svc,
+	BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
+	BT_GATT_CHARACTERISTIC(&accel_char_uuid.uuid,
+			       BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_NONE,
+			       NULL, NULL, accel_value),
+	BT_GATT_CCC(accel_ccc_cfg_changed,
+		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)
+);
+
+static struct bt_conn *current_conn;
+
+static void connected(struct bt_conn *conn, uint8_t err)
+{
+	if (err) {
+		printk("Connection failed (err %u)\n", err);
+		return;
+	}
+	printk("Connected\n");
+	current_conn = bt_conn_ref(conn);
+}
+
+static void disconnected(struct bt_conn *conn, uint8_t reason)
+{
+	printk("Disconnected (reason 0x%02x)\n", reason);
+	if (current_conn) {
+		bt_conn_unref(current_conn);
+		current_conn = NULL;
+	}
+}
+
+BT_CONN_CB_DEFINE(conn_callbacks) = {
+	.connected = connected,
+	.disconnected = disconnected,
+};
+
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
+
+static void bt_ready(int err)
+{
+	if (err) {
+		printk("Bluetooth init failed (err %d)\n", err);
+		return;
+	}
+
+	printk("Bluetooth initialized\n");
+
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad),
+			      NULL, 0);
+	if (err) {
+		printk("Advertising failed to start (err %d)\n", err);
+		return;
+	}
+
+	printk("Advertising started\n");
+}
+
+static void send_accel_notification(int16_t x, int16_t y, int16_t z){
+	if(!current_conn) return;
+
+	accel_value[0] = x & 0xFF;
+	accel_value[1] = (x >> 8) & 0xFF;
+	accel_value[2] = y & 0xFF;
+	accel_value[3] = (y >> 8) & 0xFF;
+	accel_value[4] = z & 0xFF;
+	accel_value[5] = (z >> 8) & 0xFF;
+
+	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
+				 accel_value, sizeof(accel_value));
+	if (err) {
+		printk("Notify failed (err %d)\n", err);
+	}
+}
+
+
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 // threads
@@ -70,7 +174,7 @@ struct bma400_sensor_conf settings;
 void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	// set the semaphore
-	LOG_INF("INT fired! pins=0x%08x", pins);	
+	//LOG_INF("INT fired! pins=0x%08x", pins);	
 	k_sem_give(&bma400_ready);
 }
 
@@ -80,6 +184,15 @@ void thread_read_bma400(void)
 	static int count = 0;
 	while(1){
 		LOG_INF("In the read thread");
+		// Add this to your nRF52832 code
+bt_addr_le_t addr;
+size_t count = 1;
+
+bt_id_get(&addr, &count);
+
+printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+       addr.a.val[5], addr.a.val[4], addr.a.val[3],
+       addr.a.val[2], addr.a.val[1], addr.a.val[0]);
 		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
 
 		// Enable SPI
@@ -90,8 +203,7 @@ void thread_read_bma400(void)
 		bma400_get_accel_data(BMA400_DATA_ONLY, &acc_data, &bma_sensor);
 		
 		LOG_INF("x=%d, y=%d, z=%d", acc_data.x, acc_data.y, acc_data.z); //print data to console
-
-
+		send_accel_notification(acc_data.x,acc_data.y,acc_data.z);
 		// Disable SPI
 		pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
 	}
@@ -262,6 +374,13 @@ int main(void)
 	if (err < 0) {
 		LOG_ERR("Error: GPIO device is not ready, err: %d", err);
 		return -1;
+	}
+	err = bt_enable(bt_ready);
+	if(err){
+		printk("bt_enable failed (err %d)\n",err);
+		return -1;
+	} else{
+		printk("bt_enable() called, waiting for callback...\n");
 	}
 	/* STEP 3 - Configure the interrupt on the button's pin */
 	err = gpio_pin_interrupt_configure_dt(&int_pin, GPIO_INT_EDGE_RISING);
