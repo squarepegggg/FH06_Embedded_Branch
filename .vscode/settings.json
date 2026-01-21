@@ -1,0 +1,6 @@
+{
+    "nrf-connect.debugging.bindings": {
+        "${workspaceFolder}/build/bma400_sample": "Launch bma400_sample/build/bma400_sample",
+        "${workspaceFolder}/build": "Launch bma400_sample/build"
+    }
+}

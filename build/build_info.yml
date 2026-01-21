@@ -20,6 +20,6 @@ cmake:
   sysbuild: 'true'
 version: '0.1.0'
 west:
-  command: '/home/nrg-gluon/ncs/toolchains/b2ecd2435d/usr/local/bin/west build --build-dir /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample --pristine --board nrf52dk/nrf52832 --sysbuild --'
+  command: '/home/nrg-gluon/ncs/toolchains/b2ecd2435d/usr/local/bin/west build --build-dir /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample --pristine --board nrf52dk/nrf52832 --sysbuild -- -DDEBUG_THREAD_INFO=Off -Dbma400_sample_DEBUG_THREAD_INFO=Off'
   topdir: '/home/nrg-gluon/ncs/v3.1.1'
   version: '1.4.0'

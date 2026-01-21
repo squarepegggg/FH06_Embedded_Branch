@@ -131,7 +131,7 @@ struct spi_dt_spec spispec = SPI_DT_SPEC_GET(DT_NODELABEL(bma400), SPIOP, 0);
 uint8_t rx_buffer[128] = {0};
 
 // interrupt GPIO
-#define int_NODE DT_ALIAS(int1)
+#define int_NODE DT_ALIAS(int2)
 static const struct gpio_dt_spec int_pin = GPIO_DT_SPEC_GET(int_NODE, gpios);
 static struct gpio_callback int_cb_data;
 
@@ -184,13 +184,12 @@ void thread_read_bma400(void)
 	static int count = 0;
 	while(1){
 		LOG_INF("In the read thread");
-		// Add this to your nRF52832 code
-bt_addr_le_t addr;
-size_t count = 1;
+	bt_addr_le_t addr;
+	size_t count = 1;
 
-bt_id_get(&addr, &count);
+	bt_id_get(&addr, &count);
 
-printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
        addr.a.val[5], addr.a.val[4], addr.a.val[3],
        addr.a.val[2], addr.a.val[1], addr.a.val[0]);
 		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
@@ -209,6 +208,35 @@ printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 	}
 }
 
+// void thread_read_bma400(void)
+// {
+//     // Print MAC address ONCE
+//     bt_addr_le_t addr;
+//     size_t addr_count = 1;
+//     bt_id_get(&addr, &addr_count);
+//     printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//            addr.a.val[5], addr.a.val[4], addr.a.val[3],
+//            addr.a.val[2], addr.a.val[1], addr.a.val[0]);
+    
+//     LOG_INF("Starting test mode with fake sensor data");
+    
+//     int16_t fake_x = 1000;
+//     int16_t fake_y = 2000;
+//     int16_t fake_z = 3000;
+    
+//     while(1){
+//         // Wait 100ms (10Hz data rate)
+//         k_sleep(K_MSEC(100));
+        
+//         // Generate fake changing data
+//         fake_x += 10;
+//         fake_y -= 5;
+//         fake_z += 15;
+        
+//         LOG_INF("Fake data: x=%d, y=%d, z=%d", fake_x, fake_y, fake_z);
+//         send_accel_notification(fake_x, fake_y, fake_z);
+//     }
+// }
 // Need to make sure stack is big enough to run NN code
 K_THREAD_DEFINE(thread_read_bma400_id, STACKSIZE*4, thread_read_bma400, NULL, NULL, NULL, THREAD_READ_BMA_PRIORITY, 0, 0);
 
@@ -343,7 +371,7 @@ void init_read_lp()
 	conf.param.accel.range = BMA400_RANGE_4G;
 	conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
 	conf.param.accel.osr_lp = BMA400_ACCEL_OSR_SETTING_0;
-	conf.param.accel.int_chan = BMA400_INT_CHANNEL_1;
+	conf.param.accel.int_chan = BMA400_INT_CHANNEL_2;
 
 	rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
 

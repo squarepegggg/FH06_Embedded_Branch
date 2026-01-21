@@ -3,14 +3,14 @@
 /{
     inputs {
         compatible = "gpio-keys";
-        bmaint1: bmaint_1 {
+        bmaint2: bmaint_2 {
             gpios = <&gpio0 27 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
-            label = "BMA400 Interrupt 1";
+            label = "BMA400 Interrupt 2";
         };
     };
 
     aliases {
-        int1 = &bmaint1;
+        int2 = &bmaint2;
     };
 };
 

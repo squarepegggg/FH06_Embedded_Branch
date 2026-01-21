@@ -37,7 +37,7 @@
 		mcuboot-button0 = &button0; /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:140 */
 		mcuboot-led0 = &led0;       /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:141 */
 		watchdog0 = &wdt0;          /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:142 */
-		int1 = &bmaint1;            /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:13 */
+		int2 = &bmaint2;            /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:13 */
 	};
 
 	/* node '/soc' defined in zephyr/dts/arm/armv7-m.dtsi:6 */
@@ -226,25 +226,25 @@
 
 		/* node '/soc/spi@40004000' defined in zephyr/dts/arm/nordic/nrf52832.dtsi:186 */
 		spi1: spi@40004000 {
-			compatible = "nordic,nrf-spi";  /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:30 */
+			compatible = "nordic,nrf-spi";  /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:31 */
 			#address-cells = < 0x1 >;       /* in zephyr/dts/arm/nordic/nrf52832.dtsi:195 */
 			#size-cells = < 0x0 >;          /* in zephyr/dts/arm/nordic/nrf52832.dtsi:196 */
 			reg = < 0x40004000 0x1000 >;    /* in zephyr/dts/arm/nordic/nrf52832.dtsi:197 */
 			interrupts = < 0x4 0x1 >;       /* in zephyr/dts/arm/nordic/nrf52832.dtsi:198 */
 			max-frequency = < 0x7a1200 >;   /* in zephyr/dts/arm/nordic/nrf52832.dtsi:199 */
 			easydma-maxcnt-bits = < 0x8 >;  /* in zephyr/dts/arm/nordic/nrf52832.dtsi:200 */
-			status = "okay";                /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:31 */
-			pinctrl-0 = < &spi1_default >;  /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:32 */
-			pinctrl-1 = < &spi1_sleep >;    /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:33 */
+			status = "okay";                /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:32 */
+			pinctrl-0 = < &spi1_default >;  /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:33 */
+			pinctrl-1 = < &spi1_sleep >;    /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:34 */
 			pinctrl-names = "default",
-			                "sleep";        /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:34 */
-			cs-gpios = < &gpio0 0x1a 0x1 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:35 */
+			                "sleep";        /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:35 */
+			cs-gpios = < &gpio0 0x1a 0x1 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:36 */
 
-			/* node '/soc/spi@40004000/bma400@0' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:36 */
+			/* node '/soc/spi@40004000/bma400@0' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:37 */
 			bma400: bma400@0 {
-				compatible = "bosch,bma4xx";     /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:37 */
-				reg = < 0x0 >;                   /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:38 */
-				spi-max-frequency = < 0xf4240 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:39 */
+				compatible = "bosch,bma4xx";     /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:38 */
+				reg = < 0x0 >;                   /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:39 */
+				spi-max-frequency = < 0xf4240 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:40 */
 			};
 		};
 
@@ -615,7 +615,7 @@
 			port = < 0x0 >;                   /* in zephyr/dts/arm/nordic/nrf52832.dtsi:495 */
 			gpiote-instance = < &gpiote >;    /* in zephyr/dts/arm/nordic/nrf52832.dtsi:496 */
 			sense-edge-mask = < 0xffffffff >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:27 */
-			phandle = < 0xc >;                /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:35 */
+			phandle = < 0xc >;                /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:36 */
 		};
 	};
 
@@ -745,26 +745,26 @@
 
 		/* node '/pin-controller/spi1_default' defined in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832-pinctrl.dtsi:87 */
 		spi1_default: spi1_default {
-			phandle = < 0xa >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:32 */
+			phandle = < 0xa >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:33 */
 
 			/* node '/pin-controller/spi1_default/group1' defined in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832-pinctrl.dtsi:88 */
 			group1 {
 				psels = < 0x400001c >,
 				        < 0x500001d >,
-				        < 0x600001e >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:46 */
+				        < 0x600001e >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:47 */
 			};
 		};
 
 		/* node '/pin-controller/spi1_sleep' defined in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832-pinctrl.dtsi:95 */
 		spi1_sleep: spi1_sleep {
-			phandle = < 0xb >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:33 */
+			phandle = < 0xb >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:34 */
 
 			/* node '/pin-controller/spi1_sleep/group1' defined in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832-pinctrl.dtsi:96 */
 			group1 {
 				psels = < 0x400001c >,
 				        < 0x500001d >,
-				        < 0x600001e >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:53 */
-				low-power-enable;      /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:56 */
+				        < 0x600001e >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:54 */
+				low-power-enable;      /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:57 */
 			};
 		};
 
@@ -962,10 +962,10 @@
 	inputs {
 		compatible = "gpio-keys"; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:5 */
 
-		/* node '/inputs/bmaint_1' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:6 */
-		bmaint1: bmaint_1 {
+		/* node '/inputs/bmaint_2' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:6 */
+		bmaint2: bmaint_2 {
 			gpios = < &gpio0 0x1b 0x20 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:7 */
-			label = "BMA400 Interrupt 1"; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:8 */
+			label = "BMA400 Interrupt 2"; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:8 */
 		};
 	};
 };
