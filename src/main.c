@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+// Note for swapping INT1 <-> INT2
+// Change Line 138
+// Change Line 419
+
+
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
@@ -20,7 +25,11 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
 
-// BLE STUFF
+//////////////////////////////////////////////////////////////////////////
+//																		//
+//						All BLE/Android functionality					//
+//																		//
+//////////////////////////////////////////////////////////////////////////
 #define DEVICE_NAME       CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)
 #define BT_UUID_ACCEL_SERVICE_VAL \ 
@@ -29,13 +38,13 @@
 #define BT_UUID_ACCEL_CHAR_VAL \
 	BT_UUID_128_ENCODE(0x12345679,0x1234,0x5678,0x1234,0x1234567890ab)
 
+
 static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);
 static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	
 
 static uint8_t accel_value[6] = {0};
 
 static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
-
 	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
 	printk("Accel notifications %s\n",notif_enabled ? "enabled" : "disabled");
 }
@@ -87,29 +96,25 @@ static void bt_ready(int err)
 		printk("Bluetooth init failed (err %d)\n", err);
 		return;
 	}
-
 	printk("Bluetooth initialized\n");
-
 	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad),
 			      NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
 	}
-
 	printk("Advertising started\n");
 }
 
+// for sending to android phone
 static void send_accel_notification(int16_t x, int16_t y, int16_t z){
 	if(!current_conn) return;
-
 	accel_value[0] = x & 0xFF;
 	accel_value[1] = (x >> 8) & 0xFF;
 	accel_value[2] = y & 0xFF;
 	accel_value[3] = (y >> 8) & 0xFF;
 	accel_value[4] = z & 0xFF;
 	accel_value[5] = (z >> 8) & 0xFF;
-
 	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
 				 accel_value, sizeof(accel_value));
 	if (err) {
@@ -120,8 +125,15 @@ static void send_accel_notification(int16_t x, int16_t y, int16_t z){
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
+
+
+//////////////////////////////////////////////////////////////////////////
+//																		//
+//						Embedded functionality for sensor				//
+//																		//
+//////////////////////////////////////////////////////////////////////////
 // threads
-#define STACKSIZE 1024
+#define STACKSIZE 2048
 #define THREAD_READ_BMA_PRIORITY 7
 K_SEM_DEFINE(bma400_ready, 0, 1);
 
@@ -131,15 +143,15 @@ struct spi_dt_spec spispec = SPI_DT_SPEC_GET(DT_NODELABEL(bma400), SPIOP, 0);
 uint8_t rx_buffer[128] = {0};
 
 // interrupt GPIO
-#define int_NODE DT_ALIAS(int2)
+#define int_NODE DT_ALIAS(int1)
 static const struct gpio_dt_spec int_pin = GPIO_DT_SPEC_GET(int_NODE, gpios);
 static struct gpio_callback int_cb_data;
 
 // BMA400
 #define BMA400_REG_FIFO_CONFIG_1                  UINT8_C(0x27)
 #define FIFOINTER 3
-#define FIFO_SAMPLES 75 // number of samples for fifo content
-#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_SAMPLES*4) // 4 bytes per frame (XYZ+header)
+#define FIFO_SAMPLES 25 // number of samples for fifo content
+#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_SAMPLES*3) // 4 bytes per frame (XYZ+header)
 #define FIFO_FULL_SIZE          UINT16_C(1024)
 #define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
 #define FIFO_ACCEL_FRAME_COUNT  UINT8_C(FIFO_SAMPLES)
@@ -161,53 +173,103 @@ struct bma400_dev           bma_sensor         = {
 };
 
 struct bma400_sensor_data acc_data;
-
 struct bma400_int_enable int_en;
 struct bma400_fifo_data fifo_frame;
 struct bma400_device_conf fifo_conf;
 struct bma400_sensor_conf conf;
 uint8_t fifo_buff[FIFO_SIZE] = { 0 };
-
 struct bma400_sensor_conf settings;
+struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = { { 0 } };
 
 
 void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	// set the semaphore
-	//LOG_INF("INT fired! pins=0x%08x", pins);	
+	//LOG_INF("INT fired! pins=0x%08x", pins);
+	printk("inside INT Handler\n");
 	k_sem_give(&bma400_ready);
+	printk("Post INT Handler\n");
+
 }
 
 
+// for reading every sample
+// void thread_read_bma400(void)
+// {
+// 	static int count = 0;
+// 	while(1){
+// 		LOG_INF("In the read thread");
+// 	bt_addr_le_t addr;
+// 	size_t count = 1;
+// 	bt_id_get(&addr, &count);
+// 	printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//        addr.a.val[5], addr.a.val[4], addr.a.val[3],
+//        addr.a.val[2], addr.a.val[1], addr.a.val[0]);
+// 		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+// 		// Enable SPI
+// 		const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+// 		pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+// 		// Read one sample
+// 		bma400_get_accel_data(BMA400_DATA_ONLY, &acc_data, &bma_sensor);
+// 		LOG_INF("x=%d, y=%d, z=%d", acc_data.x, acc_data.y, acc_data.z); //print data to console
+// 		send_accel_notification(acc_data.x,acc_data.y,acc_data.z);
+// 		// Disable SPI
+// 		pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+// 	}
+// }
+
+// for reading every 25 samples from a buffer
 void thread_read_bma400(void)
 {
-	static int count = 0;
-	while(1){
-		LOG_INF("In the read thread");
-	bt_addr_le_t addr;
-	size_t count = 1;
+        static int count = 0;
+        while(1){
+                LOG_INF("In the read thread\n");
+ 				bt_addr_le_t addr;
+ 				size_t count = 1;
+	 			bt_id_get(&addr, &count);
+				printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        		addr.a.val[5], addr.a.val[4], addr.a.val[3],
+		        addr.a.val[2], addr.a.val[1], addr.a.val[0]);
+                k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+				printk("made it past lock\n");
+                // Enable SPI
+                const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+                pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+				printk("made it enabling SPI\n");
+                // read data from bma400 fifo
+                bma400_get_fifo_data(&fifo_frame, &bma_sensor);
+                uint16_t accel_frames_req = FIFO_SAMPLES;
+                bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
+				printk("read data from bma400 fifo\n");
+                // after reading, disable the interrupt and put the bma400 to sleep
+               	//int_en.type = BMA400_FIFO_WM_INT_EN;
+                //int_en.conf = BMA400_DISABLE;
+                //int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+                //bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
 
-	bt_id_get(&addr, &count);
+                // Disable SPI
+                pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
 
-	printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-       addr.a.val[5], addr.a.val[4], addr.a.val[3],
-       addr.a.val[2], addr.a.val[1], addr.a.val[0]);
-		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+                // Read the data and convert to m/s^2
+                for(int i = 0; i < 25; i++)
+                {
+                        // first convert to m/s^2, we configured to +/- 2G, so 1G = 1024
+            //             float x_f = (float)(accel_data[i].x)*9.8/1024.0f; 
+            // float y_f = (float)(accel_data[i].y)*9.8/1024.0f; 
+            // float z_f = (float)(accel_data[i].z)*9.8/1024.0f; 
 
-		// Enable SPI
-		const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-		pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
-
-		// Read one sample
-		bma400_get_accel_data(BMA400_DATA_ONLY, &acc_data, &bma_sensor);
-		
-		LOG_INF("x=%d, y=%d, z=%d", acc_data.x, acc_data.y, acc_data.z); //print data to console
-		send_accel_notification(acc_data.x,acc_data.y,acc_data.z);
-		// Disable SPI
-		pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
-	}
+                        // can print here or write to a buffer
+ 			// //send_accel_notification(x_f,y_f,z_f);
+			// int whole = (int)x_f;
+			// int fract = (int)((x_f - whole) * 100);
+			// LOG_INF("x=%d.%02d",whole,fract); //print data to console
+            //     }
+			LOG_INF("x=%d\n",accel_data[i].x);
+				}
+        }
 }
-
+// for testing if SPI works
+	
 // void thread_read_bma400(void)
 // {
 //     // Print MAC address ONCE
@@ -217,31 +279,26 @@ void thread_read_bma400(void)
 //     printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 //            addr.a.val[5], addr.a.val[4], addr.a.val[3],
 //            addr.a.val[2], addr.a.val[1], addr.a.val[0]);
-    
 //     LOG_INF("Starting test mode with fake sensor data");
-    
 //     int16_t fake_x = 1000;
 //     int16_t fake_y = 2000;
 //     int16_t fake_z = 3000;
-    
 //     while(1){
 //         // Wait 100ms (10Hz data rate)
-//         k_sleep(K_MSEC(100));
-        
+//         k_sleep(K_MSEC(100));   
 //         // Generate fake changing data
 //         fake_x += 10;
 //         fake_y -= 5;
-//         fake_z += 15;
-        
+//         fake_z += 15;    
 //         LOG_INF("Fake data: x=%d, y=%d, z=%d", fake_x, fake_y, fake_z);
 //         send_accel_notification(fake_x, fake_y, fake_z);
 //     }
 // }
+
+
+
 // Need to make sure stack is big enough to run NN code
 K_THREAD_DEFINE(thread_read_bma400_id, STACKSIZE*4, thread_read_bma400, NULL, NULL, NULL, THREAD_READ_BMA_PRIORITY, 0, 0);
-
-
-
 BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr)
 {
 	int err;
@@ -345,7 +402,7 @@ void init_activity()
 
 	settings.param.gen_int.int_chan = BMA400_INT_CHANNEL_1;
     settings.param.gen_int.axes_sel = BMA400_AXIS_XYZ_EN;
-    settings.param.gen_int.data_src = BMA400_DATA_SRC_ACC_FILT2;
+    settings.param.gen_int.data_src = BMA400_DATA_SRC_ACC_FILT1;
 	settings.param.gen_int.criterion_sel = BMA400_ACTIVITY_INT;
 	settings.param.gen_int.evaluate_axes = BMA400_ANY_AXES_INT;
     settings.param.gen_int.ref_update = BMA400_UPDATE_EVERY_TIME;
@@ -371,7 +428,7 @@ void init_read_lp()
 	conf.param.accel.range = BMA400_RANGE_4G;
 	conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
 	conf.param.accel.osr_lp = BMA400_ACCEL_OSR_SETTING_0;
-	conf.param.accel.int_chan = BMA400_INT_CHANNEL_2;
+	conf.param.accel.int_chan = BMA400_INT_CHANNEL_1;
 
 	rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
 
@@ -416,7 +473,7 @@ int main(void)
 
 	/* STEP 6 - Initialize the static struct gpio_callback variable   */
 	gpio_init_callback(&int_cb_data, bma_int_handler, BIT(int_pin.pin));
-
+	printk("Line After intHandler\n");
 	/* STEP 7 - Add the callback function by calling gpio_add_callback()   */
 	gpio_add_callback(int_pin.port, &int_cb_data);
 
@@ -425,11 +482,11 @@ int main(void)
   
 
 	// init_activity();
-	// init_fifo_watermark();
-	init_read_lp();
+	init_fifo_watermark();	// interupts for fifo buffers
+//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
-	const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-	pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+	//const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+	//pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
 	
 
 	while(1){
