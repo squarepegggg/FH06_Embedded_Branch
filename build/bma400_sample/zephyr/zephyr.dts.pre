@@ -1035,14 +1035,14 @@ arduino_spi: &spi2 {
 /{
     inputs {
         compatible = "gpio-keys";
-        bmaint2: bmaint_2 {
+        bmaint1: bmaint_1 {
             gpios = <&gpio0 27 ((1 << 5) | (0 << 0))>;
             label = "BMA400 Interrupt 2";
         };
     };
 
     aliases {
-        int2 = &bmaint2;
+        int1 = &bmaint1;
     };
 };
 

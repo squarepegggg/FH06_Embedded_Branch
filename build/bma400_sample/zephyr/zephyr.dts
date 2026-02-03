@@ -37,7 +37,7 @@
 		mcuboot-button0 = &button0; /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:140 */
 		mcuboot-led0 = &led0;       /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:141 */
 		watchdog0 = &wdt0;          /* in zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts:142 */
-		int2 = &bmaint2;            /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:13 */
+		int1 = &bmaint1;            /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:13 */
 	};
 
 	/* node '/soc' defined in zephyr/dts/arm/armv7-m.dtsi:6 */
@@ -962,8 +962,8 @@
 	inputs {
 		compatible = "gpio-keys"; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:5 */
 
-		/* node '/inputs/bmaint_2' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:6 */
-		bmaint2: bmaint_2 {
+		/* node '/inputs/bmaint_1' defined in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:6 */
+		bmaint1: bmaint_1 {
 			gpios = < &gpio0 0x1b 0x20 >; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:7 */
 			label = "BMA400 Interrupt 2"; /* in ../../Desktop/SeniorDesign/bma400_sample/boards/nrf52dk_nrf52832.overlay:8 */
 		};
