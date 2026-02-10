@@ -18,13 +18,27 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/spi.h>
 #include "bma400.h"
+#include "glueV2.h"
+#include <string.h>
 #include "bma400_defs.h"
+
 
 //BLE STUFF
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
+
+
+//////////////////////////////////////////////////////////////////////////
+//																		//
+//						ML Stuff										//
+//																		//
+//////////////////////////////////////////////////////////////////////////
+
+
+int ei_v2_classify_test(const char **out_label, float *out_score);
+
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
@@ -218,8 +232,7 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 // for reading every 25 samples from a buffer
 void thread_read_bma400(void)
 {
-        static int count = 0;	//
-		static float mlInput[FIFO_SAMPLES * 3]; // local packet
+        static int count = 0;
         while(1){
             LOG_INF("In the read thread\n");
 
@@ -259,20 +272,39 @@ void thread_read_bma400(void)
 			// 2.) Preprocess data for ML Model 
             for(int i = 0; i < FIFO_SAMPLES; i++) {
                 // first convert to m/s^2, we configured to +/- 2G, so 1G = 1024
-                mlInput[i*3 + 0] = (float)(accel_data[i].x)*9.8/512.0f; 
-            	mlInput[i*3 + 1] = (float)(accel_data[i].y)*9.8/512.0f; 
-            	mlInput[i*3 + 2] = (float)(accel_data[i].z)*9.8/512.0f; 
+                demo_data[i] = (float)(accel_data[i].x)*9.8/512.0f; 
+            	demo_data[i + 25] = (float)(accel_data[i].y)*9.8/512.0f; 
+            	demo_data[i + 50] = (float)(accel_data[i].z)*9.8/512.0f; 
                 // can print here or write to a buffer
  				//send_accel_notification(x_f,y_f,z_f);	// uncomment/comment for external android phone
 			}
 
 			// 3. Run Inference
+			const char *predictedLabel = NULL;
+			float predictedScore = 0.0f;
 
-			// 4. Send only prediction over BLE
-			uint8_t result_to_send; // result here
-        	if (current_conn) {
-            	bt_gatt_notify(current_conn, &accel_svc.attrs[1], &result_to_send, 1);
-        	}
+			int inferenceResult = ei_v2_classify_test(&predictedLabel,&predictedScore);	// call the classification 
+
+			if(inferenceResult == 0 && predictedLabel != NULL){	// if there is nothing
+				LOG_INF("Prediction: %s (score: %.2f)",predictedLabel,predictedScore);
+
+				// 4. Send only prediction over BLE
+				uint8_t result_to_send = 0; // data to be sent to phone
+				
+					// 4a. figure out what we are sending to external device
+
+				// Send data to Android/ Extenral Device
+				if (current_conn) {
+            		int ble_err = bt_gatt_notify(current_conn, &accel_svc.attrs[1], &result_to_send, 1);
+					if(ble_err){
+						LOG_ERR("BLE Notify Failed %d", ble_err);
+					}
+        		}		
+			}	else {
+				LOG_ERR("Inference failed with code: %d", inferenceResult);
+			}
+
+
 			// 5. reset sensor
 			bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
         	int_en.conf = BMA400_ENABLE;

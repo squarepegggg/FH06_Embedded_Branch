@@ -1,0 +1,12 @@
+{
+  "labels": [
+    "downstairs",
+    "jump",
+    "running",
+    "sitting",
+    "standing",
+    "upstairs",
+    "walking"
+  ],
+  "num_classes": 7
+}
