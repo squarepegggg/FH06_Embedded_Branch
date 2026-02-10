@@ -444,3 +444,7 @@
 /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/zephyr/cmake/reports/CMakeFiles/ram_report.dir
 /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/zephyr/cmake/reports/CMakeFiles/footprint.dir
 /home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/zephyr/cmake/reports/CMakeFiles/edit_cache.dir
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/ei-v2/CMakeFiles/rebuild_cache.dir
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/ei-v2/CMakeFiles/edit_cache.dir
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/ei-v2/edge-impulse-sdk/cmake/zephyr/CMakeFiles/rebuild_cache.dir
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/bma400_sample/ei-v2/edge-impulse-sdk/cmake/zephyr/CMakeFiles/edit_cache.dir
