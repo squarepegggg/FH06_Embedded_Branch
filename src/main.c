@@ -49,7 +49,7 @@ int ei_v2_classify_test(const char **out_label, float *out_score);
 // BLE STUFF
 #define DEVICE_NAME       CONFIG_BT_DEVICE_NAME	// Name of Device
 #define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)	// Length of device
-#define BT_UUID_ACCEL_SERVICE_VAL \ 
+#define BT_UUID_ACCEL_SERVICE_VAL \
 	BT_UUID_128_ENCODE(0x12345678,0x1234,0x5678,0x1234,0x1234567890ab)	// ID of device
 
 #define BT_UUID_ACCEL_CHAR_VAL \
@@ -57,7 +57,7 @@ int ei_v2_classify_test(const char **out_label, float *out_score);
 static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
 static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
 static struct bt_conn *current_conn;	// current connection ptr
-static uint8_t accel_value[6] = {0};
+static uint8_t accel_value[7] = {0};
 // Func for Notifying External Device
 static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
 	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
@@ -74,6 +74,8 @@ BT_GATT_SERVICE_DEFINE(accel_svc,
 		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)
 );
 
+// Forward declaration
+static void request_fast_ble_interval(void);
 
 // BLE HELPER FUNCTIONS
 static void connected(struct bt_conn *conn, uint8_t err)
@@ -84,6 +86,8 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 	printk("Connected\n");
 	current_conn = bt_conn_ref(conn);
+	/* Kick a fast connection interval so BLE notifications arrive in real-time */
+	request_fast_ble_interval();
 }
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
@@ -120,21 +124,42 @@ static void bt_ready(int err)
 	printk("Advertising started\n");
 }
 
-// for sending to android phone
-static void send_accel_notification(int16_t x, int16_t y, int16_t z){
+// Payload: [label][x_lsb][x_msb][y_lsb][y_msb][z_lsb][z_msb]
+static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z){
 	if(!current_conn) return;
-	accel_value[0] = x & 0xFF;
-	accel_value[1] = (x >> 8) & 0xFF;
-	accel_value[2] = y & 0xFF;
-	accel_value[3] = (y >> 8) & 0xFF;
-	accel_value[4] = z & 0xFF;
-	accel_value[5] = (z >> 8) & 0xFF;
+	accel_value[0] = label;
+	accel_value[1] = x & 0xFF;
+	accel_value[2] = (x >> 8) & 0xFF;
+	accel_value[3] = y & 0xFF;
+	accel_value[4] = (y >> 8) & 0xFF;
+	accel_value[5] = z & 0xFF;
+	accel_value[6] = (z >> 8) & 0xFF;
 	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
-				 accel_value, sizeof(accel_value));
+					 accel_value, sizeof(accel_value));
 	if (err) {
 		printk("Notify failed (err %d)\n", err);
 	}
 }
+
+/* Request fast BLE connection interval for real-time data.
+ * 7.5ms–15ms interval ≈ 67–133 updates/sec (vs default ~30–50ms). */
+static void request_fast_ble_interval(void)
+{
+	if (!current_conn) return;
+	/* min 7.5ms, max 15ms, latency 0, timeout 4s */
+	static const struct bt_le_conn_param fast_params =
+		BT_LE_CONN_PARAM_INIT(6, 12, 0, 400);
+	int err = bt_conn_le_param_update(current_conn, &fast_params);
+	if (err) {
+		printk("BLE param update request failed (err %d)\n", err);
+	} else {
+		printk("BLE param update requested: 7.5-15ms interval\n");
+	}
+}
+
+/* Cached ML result so accel-only updates still carry the latest label */
+static uint8_t cached_label = 0xFF;
+
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 
@@ -162,8 +187,9 @@ static struct gpio_callback int_cb_data;
 // BMA400
 #define BMA400_REG_FIFO_CONFIG_1                  UINT8_C(0x27)
 #define FIFOINTER 3
-#define FIFO_SAMPLES 25 // number of samples for fifo content
-#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_SAMPLES*3) // 4 bytes per frame (XYZ+header)
+#define FIFO_SAMPLES 25 // number of samples needed for ML inference window
+#define FIFO_BATCH  5   // samples per FIFO interrupt (200ms at 25Hz) for faster BLE updates
+#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_BATCH*7) // 12-bit mode: 7 bytes per XYZ frame
 #define FIFO_FULL_SIZE          UINT16_C(1024)
 #define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
 #define FIFO_ACCEL_FRAME_COUNT  UINT8_C(FIFO_SAMPLES)
@@ -232,84 +258,82 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 // for reading every 25 samples from a buffer
 void thread_read_bma400(void)
 {
-        static int count = 0;
-        while(1){
-            LOG_INF("In the read thread\n");
+	/* Ring buffer accumulates FIFO_BATCH-sized chunks into a full
+	 * FIFO_SAMPLES (25) window for ML inference.  BLE accel data
+	 * is sent on every batch for near-real-time display (~5Hz). */
+	struct bma400_fifo_sensor_data ml_window[FIFO_SAMPLES];
+	int ml_idx = 0;   /* how many samples in ml_window so far */
 
-			// Mac Address stuff For Android phone
- 			bt_addr_le_t addr;	
- 			size_t count = 1;
-	 		bt_id_get(&addr, &count);
-			printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-        	addr.a.val[5], addr.a.val[4], addr.a.val[3],
-		    addr.a.val[2], addr.a.val[1], addr.a.val[0]);
-			
-            k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
-			printk("made it past lock\n");
+	while (1) {
+		k_sem_take(&bma400_ready, K_FOREVER);
 
-            // Enable SPI
-            const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-            pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
-			printk("made it enabling SPI\n");
+		/* ── 1. Read whatever is in the FIFO ── */
+		bma400_get_fifo_data(&fifo_frame, &bma_sensor);
+		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
+		bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
 
-            // read data from bma400 fifo
-			// 1.) Get data from sensor
-            bma400_get_fifo_data(&fifo_frame, &bma_sensor);
-            uint16_t accel_frames_req = FIFO_SAMPLES;
-            bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
-			printk("read data from bma400 fifo\n");
+		/* ── 2. Send each new sample via BLE immediately ── */
+		for (int i = 0; i < got; i++) {
+			send_prediction_accel_notification(
+				cached_label,
+				accel_data[i].x,
+				accel_data[i].y,
+				accel_data[i].z);
 
-            // after reading, disable the interrupt and put the bma400 to sleep
-            //int_en.type = BMA400_FIFO_WM_INT_EN;
-            //int_en.conf = BMA400_DISABLE;
-            //int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-            //bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
+			/* Copy into ML window */
+			if (ml_idx < FIFO_SAMPLES) {
+				ml_window[ml_idx] = accel_data[i];
+				ml_idx++;
+			}
+		}
 
-            // Disable SPI
-            pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
-				
-            // Read the data and convert to m/s^2 
-			// 2.) Preprocess data for ML Model 
-            for(int i = 0; i < FIFO_SAMPLES; i++) {
-                // first convert to m/s^2, we configured to +/- 2G, so 1G = 1024
-                demo_data[i] = (float)(accel_data[i].x)*9.8/512.0f; 
-            	demo_data[i + 25] = (float)(accel_data[i].y)*9.8/512.0f; 
-            	demo_data[i + 50] = (float)(accel_data[i].z)*9.8/512.0f; 
-                // can print here or write to a buffer
- 				//send_accel_notification(x_f,y_f,z_f);	// uncomment/comment for external android phone
+		/* ── 3. Run ML inference once we have a full 25-sample window ── */
+		if (ml_idx >= FIFO_SAMPLES) {
+			/* Preprocess for Edge Impulse */
+			for (int i = 0; i < FIFO_SAMPLES; i++) {
+				demo_data[i]      = ((float)ml_window[i].x * 9.80665f) / 512.0f;
+				demo_data[i + 25] = ((float)ml_window[i].y * 9.80665f) / 512.0f;
+				demo_data[i + 50] = ((float)ml_window[i].z * 9.80665f) / 512.0f;
 			}
 
-			// 3. Run Inference
 			const char *predictedLabel = NULL;
 			float predictedScore = 0.0f;
+			int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
 
-			int inferenceResult = ei_v2_classify_test(&predictedLabel,&predictedScore);	// call the classification 
+			if (inferenceResult == 0 && predictedLabel != NULL) {
+				printk("=== ML Prediction: %s (score: %d.%02d) ===\n",
+					predictedLabel,
+					(int)predictedScore,
+					(int)((predictedScore - (int)predictedScore) * 100));
 
-			if(inferenceResult == 0 && predictedLabel != NULL){	// if there is nothing
-				LOG_INF("Prediction: %s (score: %.2f)",predictedLabel,predictedScore);
+				uint8_t result_to_send = 0xFF;
+				if      (strcmp(predictedLabel, "downstairs") == 0) result_to_send = 0;
+				else if (strcmp(predictedLabel, "jump") == 0)       result_to_send = 1;
+				else if (strcmp(predictedLabel, "running") == 0)    result_to_send = 2;
+				else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
+				else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
+				else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
+				else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
 
-				// 4. Send only prediction over BLE
-				uint8_t result_to_send = 0; // data to be sent to phone
-				
-					// 4a. figure out what we are sending to external device
+				cached_label = result_to_send;
 
-				// Send data to Android/ Extenral Device
-				if (current_conn) {
-            		int ble_err = bt_gatt_notify(current_conn, &accel_svc.attrs[1], &result_to_send, 1);
-					if(ble_err){
-						LOG_ERR("BLE Notify Failed %d", ble_err);
-					}
-        		}		
-			}	else {
-				LOG_ERR("Inference failed with code: %d", inferenceResult);
+				/* Send one notification with the fresh ML label */
+				int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
+				int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
+				int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
+				send_prediction_accel_notification(result_to_send, lx, ly, lz);
+			} else {
+				printk("Inference failed with code: %d\n", inferenceResult);
 			}
 
+			ml_idx = 0;  /* reset window for next 25 samples */
+		}
 
-			// 5. reset sensor
-			bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
-        	int_en.conf = BMA400_ENABLE;
-        	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-        }
+		/* ── 4. Re-arm sensor ── */
+		bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+		int_en.conf = BMA400_ENABLE;
+		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+	}
 }
 // for testing if SPI works	
 // void thread_read_bma400(void)
@@ -420,10 +444,10 @@ void init_fifo_watermark()
 
 	rslt = bma400_get_device_conf(&fifo_conf, 1, &bma_sensor);
 
-	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_8_BIT_EN | BMA400_FIFO_X_EN 
+	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_X_EN 
 										| BMA400_FIFO_Y_EN 
 										| BMA400_FIFO_Z_EN
-										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change
+										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change (12-bit mode for full resolution)
 	fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
 	fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;
 	fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
@@ -438,6 +462,7 @@ void init_fifo_watermark()
 
 	bma400_set_power_mode(BMA400_MODE_NORMAL,&bma_sensor);
 	rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+	printk("FIFO WM init: set_power_mode + enable_interrupt rslt=%d\n", rslt);
 }
 // idk
 void init_activity()
@@ -521,13 +546,24 @@ int main(void)
 	printk("Line After intHandler\n");
 	/* STEP 7 - Add the callback function by calling gpio_add_callback()   */
 	gpio_add_callback(int_pin.port, &int_cb_data);
+	printk("GPIO interrupt configured on pin %d, current level: %d\n", 
+		   int_pin.pin, gpio_pin_get_dt(&int_pin));
 
 
 	bma400_init(&bma_sensor);
-  
+	printk("BMA400 init done\n");
 
 	// init_activity();
 	init_fifo_watermark();	// interupts for fifo buffers
+	printk("FIFO watermark init done, interrupt pin level: %d\n", gpio_pin_get_dt(&int_pin));
+
+	/* If the interrupt pin is already high after init, kick the semaphore manually
+	 * This handles the case where BMA400 has stale FIFO data from a previous session
+	 * (chip-erase only erases the nRF, not the BMA400) */
+	if (gpio_pin_get_dt(&int_pin)) {
+		printk("INT pin already high after init — kicking semaphore\n");
+		k_sem_give(&bma400_ready);
+	}
 	//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
 	//const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));

@@ -4,7 +4,7 @@
     inputs {
         compatible = "gpio-keys";
         bmaint1: bmaint_1 {
-            gpios = <&gpio0 27 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+            gpios = <&gpio0 3 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
             label = "BMA400 Interrupt 2";
         };
     };
@@ -33,7 +33,7 @@
  pinctrl-0 = <&spi1_default>;
  pinctrl-1 = <&spi1_sleep>;
  pinctrl-names = "default", "sleep";
- cs-gpios = <&gpio0 26 GPIO_ACTIVE_LOW>;
+ cs-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
  bma400: bma400@0 {
  compatible = "bosch,bma4xx";
  reg = <0>;
@@ -44,16 +44,16 @@
 &pinctrl {
  spi1_default: spi1_default {
  group1 {
- psels = <NRF_PSEL(SPIM_SCK, 0, 28)>, 
- <NRF_PSEL(SPIM_MOSI, 0, 29)>,      // pico
- <NRF_PSEL(SPIM_MISO, 0, 30)>;      // poci
+ psels = <NRF_PSEL(SPIM_SCK, 0, 6)>, 
+ <NRF_PSEL(SPIM_MOSI, 0, 4)>,      // pico
+ <NRF_PSEL(SPIM_MISO, 0, 5)>;      // poci
  };
  };
  spi1_sleep: spi1_sleep {
  group1 {
- psels = <NRF_PSEL(SPIM_SCK, 0, 28)>,
- <NRF_PSEL(SPIM_MOSI, 0, 29)>,
- <NRF_PSEL(SPIM_MISO, 0, 30)>;
+ psels = <NRF_PSEL(SPIM_SCK, 0, 6)>,
+ <NRF_PSEL(SPIM_MOSI, 0, 4)>,
+ <NRF_PSEL(SPIM_MISO, 0, 5)>;
  low-power-enable;
  };
  };
