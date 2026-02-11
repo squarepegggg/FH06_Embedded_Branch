@@ -291,9 +291,9 @@ void thread_read_bma400(void)
 		if (ml_idx >= FIFO_SAMPLES) {
 			/* Preprocess for Edge Impulse */
 			for (int i = 0; i < FIFO_SAMPLES; i++) {
-				demo_data[i]      = ((float)ml_window[i].x * 9.80665f) / 512.0f;
-				demo_data[i + 25] = ((float)ml_window[i].y * 9.80665f) / 512.0f;
-				demo_data[i + 50] = ((float)ml_window[i].z * 9.80665f) / 512.0f;
+				demo_data[i]      = ((float)ml_window[i].x);
+				demo_data[i + 25] = ((float)ml_window[i].y);
+				demo_data[i + 50] = ((float)ml_window[i].z);
 			}
 
 			const char *predictedLabel = NULL;
