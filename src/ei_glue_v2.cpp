@@ -10,10 +10,13 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
 #include "model-parameters/model_metadata.h"
+#include "tflite-model/tflite_learn_879102_37.h"
 
-// Demo data: shape (3, 25, 1) flattened in C order (column-major from original table)
-// Order: Column 1 (all 25 rows), Column 2 (all 25 rows), Column 3 (all 25 rows)
 float demo_data[75] = {};
+extern "C" {
+    extern const unsigned int ei_model_arena_size  = EI_CLASSIFIER_TFLITE_LARGEST_ARENA_SIZE;
+    extern const unsigned int ei_model_tflite_len  = tflite_learn_879102_37_len;
+}
 
 extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
 {

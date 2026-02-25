@@ -282,6 +282,23 @@
   <canvas id="accelChart" width="520" height="180"></canvas>
 </div>
 
+<!-- ML Profiling -->
+<div class="accel-label">ML Profiling</div>
+<div class="accel-card" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+  <div class="axis">
+    <span class="axis-name">Inference Latency</span>
+    <span class="axis-value" id="inferLatency">-- ms</span>
+  </div>
+  <div class="axis">
+    <span class="axis-name">Arena (Max RAM)</span>
+    <span class="axis-value" id="arenaSize">-- B</span>
+  </div>
+  <div class="axis">
+    <span class="axis-name">Model Size</span>
+    <span class="axis-value" id="modelSize">-- B</span>
+  </div>
+</div>
+
 <!-- Log -->
 <div class="log-label">Event Log</div>
 <div class="log" id="log"></div>
@@ -505,16 +522,50 @@ function drawAccelChart() {
   });
 }
 
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+function onMLProfiling(inferenceUs, arenaBytes, modelBytes) {
+  if (inferenceUs !== LATENCY_SENTINEL) {
+    const ms = (inferenceUs / 1000).toFixed(2);
+    document.getElementById('inferLatency').textContent = ms + ' ms';
+  }
+  if (arenaBytes > 0) {
+    document.getElementById('arenaSize').textContent =
+      arenaBytes >= 1024 ? (arenaBytes / 1024).toFixed(1) + ' KB' : arenaBytes + ' B';
+  }
+  if (modelBytes > 0) {
+    document.getElementById('modelSize').textContent =
+      modelBytes >= 1024 ? (modelBytes / 1024).toFixed(1) + ' KB' : modelBytes + ' B';
+  }
+}
+
 // ── BLE notification handler ────────────────────────────────
 function onNotification(event) {
   const value = event.target.value;
+
+  if (value.byteLength >= 17) {
+    const label       = value.getUint8(0);
+    const x           = value.getInt16(1, true);
+    const y           = value.getInt16(3, true);
+    const z           = value.getInt16(5, true);
+    const inferenceUs = value.getUint32(7, true);
+    const arenaBytes  = value.getUint16(11, true);
+    const modelBytes  = value.getUint32(13, true);
+
+    if (label <= 6 && label !== lastLabel) {
+      onPrediction(label);
+      lastLabel = label;
+    }
+    onAccelerometer(x, y, z);
+    onMLProfiling(inferenceUs, arenaBytes, modelBytes);
+    return;
+  }
+
   if (value.byteLength >= 7) {
     const label = value.getUint8(0);
     const x = value.getInt16(1, true);
     const y = value.getInt16(3, true);
     const z = value.getInt16(5, true);
-    // Only update the ML prediction display when the label actually changes
-    // (accel-only packets carry the cached label 0xFF or the last known label)
     if (label <= 6 && label !== lastLabel) {
       onPrediction(label);
       lastLabel = label;
@@ -527,7 +578,7 @@ function onNotification(event) {
     const byte = value.getUint8(0);
     onPrediction(byte);
     if (!warnedLegacyPacket) {
-      log('Received legacy 1-byte packet (prediction only). Reflash latest firmware for accelerometer payload.', 'err');
+      log('Received legacy 1-byte packet. Reflash latest firmware for full payload.', 'err');
       warnedLegacyPacket = true;
     }
     return;

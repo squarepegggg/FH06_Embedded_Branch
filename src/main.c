@@ -8,6 +8,10 @@
 // Change Line 138
 // Change Line 419
 
+/* Cycle-to-ns conversion: use Kconfig value; fallback for nRF52 @ 64 MHz */
+#ifndef CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC
+#define CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC 64000000
+#endif
 
 // Basic Libs
 #include <zephyr/kernel.h>
@@ -17,9 +21,11 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/spi.h>
+#include <zephyr/sys/util.h>
 #include "bma400.h"
 #include "glueV2.h"
 #include <string.h>
+#include <time.h>
 #include "bma400_defs.h"
 
 
@@ -57,7 +63,10 @@ int ei_v2_classify_test(const char **out_label, float *out_score);
 static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
 static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
 static struct bt_conn *current_conn;	// current connection ptr
-static uint8_t accel_value[7] = {0};
+/* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) = 17 */
+#define ACCEL_PAYLOAD_SIZE 17
+static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
+#define LATENCY_SENTINEL 0xFFFFFFFFU
 // Func for Notifying External Device
 static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
 	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
@@ -124,9 +133,10 @@ static void bt_ready(int err)
 	printk("Advertising started\n");
 }
 
-// Payload: [label][x_lsb][x_msb][y_lsb][y_msb][z_lsb][z_msb]
-static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z){
-	if(!current_conn) return;
+static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z,
+					       uint32_t inference_us, uint16_t arena_bytes,
+					       uint32_t model_bytes){
+	if (!current_conn) return;
 	accel_value[0] = label;
 	accel_value[1] = x & 0xFF;
 	accel_value[2] = (x >> 8) & 0xFF;
@@ -134,8 +144,18 @@ static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t
 	accel_value[4] = (y >> 8) & 0xFF;
 	accel_value[5] = z & 0xFF;
 	accel_value[6] = (z >> 8) & 0xFF;
+	accel_value[7] = inference_us & 0xFF;
+	accel_value[8] = (inference_us >> 8) & 0xFF;
+	accel_value[9] = (inference_us >> 16) & 0xFF;
+	accel_value[10] = (inference_us >> 24) & 0xFF;
+	accel_value[11] = arena_bytes & 0xFF;
+	accel_value[12] = (arena_bytes >> 8) & 0xFF;
+	accel_value[13] = model_bytes & 0xFF;
+	accel_value[14] = (model_bytes >> 8) & 0xFF;
+	accel_value[15] = (model_bytes >> 16) & 0xFF;
+	accel_value[16] = (model_bytes >> 24) & 0xFF;
 	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
-					 accel_value, sizeof(accel_value));
+				 accel_value, sizeof(accel_value));
 	if (err) {
 		printk("Notify failed (err %d)\n", err);
 	}
@@ -189,6 +209,7 @@ static struct gpio_callback int_cb_data;
 #define FIFOINTER 3
 #define FIFO_SAMPLES 25 // number of samples needed for ML inference window
 #define FIFO_BATCH  5   // samples per FIFO interrupt (200ms at 25Hz) for faster BLE updates
+#define INFERENCE_STRIDE 1  // 1 = infer every sample (lowest latency), 25 = infer every full window
 #define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_BATCH*7) // 12-bit mode: 7 bytes per XYZ frame
 #define FIFO_FULL_SIZE          UINT16_C(1024)
 #define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
@@ -263,6 +284,7 @@ void thread_read_bma400(void)
 	int ml_idx = 0;   /* how many samples in ml_window so far */
 
 	while (1) {
+
 		k_sem_take(&bma400_ready, K_FOREVER);
 
 		/* ── 1. Read whatever is in the FIFO ── */
@@ -272,7 +294,10 @@ void thread_read_bma400(void)
 
 		/* ── 2. Send each new sample via BLE immediately ── */
 		for (int i = 0; i < got; i++) {
-			send_prediction_accel_notification(cached_label,accel_data[i].x,accel_data[i].y,accel_data[i].z); // need to change to broad casting
+			send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
+							accel_data[i].z, LATENCY_SENTINEL,
+							(uint16_t)ei_model_arena_size,
+							ei_model_tflite_len);
 
 			/* Copy into ML window */
 			// fills inital buffer [0,25]
@@ -299,13 +324,19 @@ void thread_read_bma400(void)
                 memmove(&ml_window[0], &ml_window[1], 24 * sizeof(struct bma400_fifo_sensor_data));
                 ml_window[24] = accel_data[i];
 			}
+				/* Preprocess for Edge Impulse */
 
 			/* ── 3. Run ML inference once we have a full 25-sample window ── */
 			if (ml_idx >= FIFO_SAMPLES) {
-				/* Preprocess for Edge Impulse */
 				const char *predictedLabel = NULL;
 				float predictedScore = 0.0f;
+
+				uint32_t start_cyc = k_cycle_get_32();
 				int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
+				uint32_t end_cyc = k_cycle_get_32();
+				uint32_t delta_cyc = end_cyc - start_cyc;
+				uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
+					CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
 
 				if (inferenceResult == 0 && predictedLabel != NULL) {
 					printk("=== ML Prediction: %s (score: %d.%02d) ===\n",
@@ -320,15 +351,20 @@ void thread_read_bma400(void)
 					else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
 					else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
 					else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
+					/* Send one notification with the fresh ML label */
 					else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
 
 					cached_label = result_to_send;
 
-					/* Send one notification with the fresh ML label */
 					int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
 					int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
 					int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
-					send_prediction_accel_notification(result_to_send, lx, ly, lz);
+					send_prediction_accel_notification(result_to_send, lx, ly, lz,
+									latency_us,
+									(uint16_t)ei_model_arena_size,
+									ei_model_tflite_len);
+					printk("Inference latency: %u us | Arena: %u B | Model: %u B\n",
+						latency_us, ei_model_arena_size, ei_model_tflite_len);
 				} else {
 					printk("Inference failed with code: %d\n", inferenceResult);
 				}
