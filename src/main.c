@@ -224,9 +224,7 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 {
 	// set the semaphore
 	//LOG_INF("INT fired! pins=0x%08x", pins);
-	printk("inside INT Handler\n");
 	k_sem_give(&bma400_ready);
-	printk("Post INT Handler\n");
 
 }
 
@@ -274,67 +272,78 @@ void thread_read_bma400(void)
 
 		/* ── 2. Send each new sample via BLE immediately ── */
 		for (int i = 0; i < got; i++) {
-			send_prediction_accel_notification(
-				cached_label,
-				accel_data[i].x,
-				accel_data[i].y,
-				accel_data[i].z);
+			send_prediction_accel_notification(cached_label,accel_data[i].x,accel_data[i].y,accel_data[i].z); // need to change to broad casting
 
 			/* Copy into ML window */
+			// fills inital buffer [0,25]
 			if (ml_idx < FIFO_SAMPLES) {
-				ml_window[ml_idx] = accel_data[i];
+				demo_data[ml_idx] = accel_data[i].x;
+				demo_data[ml_idx + 50] = accel_data[i].y;
+				demo_data[ml_idx + 25] = accel_data[i].z;
 				ml_idx++;
+			} 
+			// buffer is fill, start sliding
+			else {
+				memmove(&demo_data[0], &demo_data[1], 24 * sizeof(float));
+                demo_data[24] = (float)accel_data[i].x;
+
+                // 2. Shift and update Y
+                memmove(&demo_data[25], &demo_data[26], 24 * sizeof(float));
+                demo_data[49] = (float)accel_data[i].y;
+
+                // 3. Shift and update Z
+                memmove(&demo_data[50], &demo_data[51], 24 * sizeof(float));
+                demo_data[74] = (float)accel_data[i].z;
+
+                // (Optional) Keep ml_window synced if you still use it for BLE labels
+                memmove(&ml_window[0], &ml_window[1], 24 * sizeof(struct bma400_fifo_sensor_data));
+                ml_window[24] = accel_data[i];
 			}
+
+			/* ── 3. Run ML inference once we have a full 25-sample window ── */
+			if (ml_idx >= FIFO_SAMPLES) {
+				/* Preprocess for Edge Impulse */
+				const char *predictedLabel = NULL;
+				float predictedScore = 0.0f;
+				int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
+
+				if (inferenceResult == 0 && predictedLabel != NULL) {
+					printk("=== ML Prediction: %s (score: %d.%02d) ===\n",
+						predictedLabel,
+						(int)predictedScore,
+						(int)((predictedScore - (int)predictedScore) * 100));
+
+					uint8_t result_to_send = 0xFF;
+					if      (strcmp(predictedLabel, "downstairs") == 0) result_to_send = 0;
+					else if (strcmp(predictedLabel, "jump") == 0)       result_to_send = 1;
+					else if (strcmp(predictedLabel, "running") == 0)    result_to_send = 2;
+					else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
+					else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
+					else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
+					else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
+
+					cached_label = result_to_send;
+
+					/* Send one notification with the fresh ML label */
+					int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
+					int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
+					int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
+					send_prediction_accel_notification(result_to_send, lx, ly, lz);
+				} else {
+					printk("Inference failed with code: %d\n", inferenceResult);
+				}
 		}
-
-		/* ── 3. Run ML inference once we have a full 25-sample window ── */
-		if (ml_idx >= FIFO_SAMPLES) {
-			/* Preprocess for Edge Impulse */
-			for (int i = 0; i < FIFO_SAMPLES; i++) {
-				demo_data[i]      = ((float)ml_window[i].x);
-				demo_data[i + 25] = ((float)ml_window[i].y);
-				demo_data[i + 50] = ((float)ml_window[i].z);
-			}
-
-			const char *predictedLabel = NULL;
-			float predictedScore = 0.0f;
-			int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
-
-			if (inferenceResult == 0 && predictedLabel != NULL) {
-				printk("=== ML Prediction: %s (score: %d.%02d) ===\n",
-					predictedLabel,
-					(int)predictedScore,
-					(int)((predictedScore - (int)predictedScore) * 100));
-
-				uint8_t result_to_send = 0xFF;
-				if      (strcmp(predictedLabel, "downstairs") == 0) result_to_send = 0;
-				else if (strcmp(predictedLabel, "jump") == 0)       result_to_send = 1;
-				else if (strcmp(predictedLabel, "running") == 0)    result_to_send = 2;
-				else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
-				else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
-				else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
-				else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
-
-				cached_label = result_to_send;
-
-				/* Send one notification with the fresh ML label */
-				int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
-				int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
-				int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
-				send_prediction_accel_notification(result_to_send, lx, ly, lz);
-			} else {
-				printk("Inference failed with code: %d\n", inferenceResult);
-			}
-
-			ml_idx = 0;  /* reset window for next 25 samples */
+			// ml_idx = 0;  // took out 2/18; because doesn't work w/ sliding window method
 		}
-
 		/* ── 4. Re-arm sensor ── */
 		bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
 		int_en.conf = BMA400_ENABLE;
 		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 	}
+
 }
+
+
 // for testing if SPI works	
 // void thread_read_bma400(void)
 // {
@@ -446,10 +455,11 @@ void init_fifo_watermark()
 
 	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_X_EN 
 										| BMA400_FIFO_Y_EN 
-										| BMA400_FIFO_Z_EN
+										| BMA400_FIFO_Z_EN	
 										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change (12-bit mode for full resolution)
 	fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
-	fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;
+	//fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;	// whatever the value of fifo_watermark_level is
+	fifo_conf.param.fifo_conf.fifo_watermark = 1;		// every 40 ms
 	fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
 
 	rslt = bma400_set_device_conf(&fifo_conf, 1, &bma_sensor);
