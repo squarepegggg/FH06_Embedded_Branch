@@ -554,7 +554,10 @@ int main(void)
 	printk("BMA400 init done\n");
 
 	// init_activity();
+	
 	init_fifo_watermark();	// interupts for fifo buffers
+	//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
+
 	printk("FIFO watermark init done, interrupt pin level: %d\n", gpio_pin_get_dt(&int_pin));
 
 	/* If the interrupt pin is already high after init, kick the semaphore manually
@@ -564,7 +567,6 @@ int main(void)
 		printk("INT pin already high after init — kicking semaphore\n");
 		k_sem_give(&bma400_ready);
 	}
-	//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
 	//const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
 	//pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
