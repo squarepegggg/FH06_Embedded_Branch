@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ── Locate firmware hex ─────────────────────────────────────
 HEX_FILE="${SCRIPT_DIR}/build/FH06_Embedded_Branch/zephyr/zephyr.hex"
 if [[ ! -f "${HEX_FILE}" ]]; then
+  HEX_FILE="${SCRIPT_DIR}/build/zephyr/zephyr.hex"
+fi
+if [[ ! -f "${HEX_FILE}" ]]; then
   HEX_FILE="${SCRIPT_DIR}/build/merged.hex"
 fi
 
@@ -13,6 +16,7 @@ if [[ ! -f "${HEX_FILE}" ]]; then
   echo "Error: could not find firmware hex file."
   echo "Expected one of:"
   echo "  ${SCRIPT_DIR}/build/FH06_Embedded_Branch/zephyr/zephyr.hex"
+  echo "  ${SCRIPT_DIR}/build/zephyr/zephyr.hex"
   echo "  ${SCRIPT_DIR}/build/merged.hex"
   exit 1
 fi
@@ -70,9 +74,13 @@ JLinkExe \
   -autoconnect 1 \
   -CommandFile "${FLASH_CMD}" >"${FLASH_LOG}" 2>&1
 
-if grep -Eq "Connecting to J-Link failed|Could not connect to J-Link|Cannot connect to J-Link|Error while programming flash" "${FLASH_LOG}"; then
+if grep -Eq "Connecting to J-Link failed|Could not connect to J-Link|Cannot connect to J-Link|Could not connect to the target|Error while programming flash" "${FLASH_LOG}"; then
   cat "${FLASH_LOG}"
-  echo "Error: flashing failed."
+  echo ""
+  echo "Error: flashing failed. Check that:"
+  echo "  1. The target board is connected via SWD"
+  echo "  2. The target board is powered"
+  echo "  3. The DK switch is set to route debug to the external target"
   exit 1
 fi
 echo "✅ Flash complete."

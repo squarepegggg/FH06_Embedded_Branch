@@ -4,6 +4,13 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+/* Solar / batteryless support:
+ * USE_SOLAR_GATEKEEPER=1: duty-cycle sensing (run_policy), SPI/BMA400 power down when idle
+ * USE_ADC=1: voltage gatekeeper (requires ADC devicetree), only run when V > threshold
+ * Set both 0 for original battery-powered behavior. */
+#define USE_SOLAR_GATEKEEPER 1
+#define USE_ADC 1
+
 // Note for swapping INT1 <-> INT2
 // Change Line 138
 // Change Line 419
@@ -28,6 +35,10 @@
 #include <time.h>
 #include "bma400_defs.h"
 
+
+#if USE_ADC
+#include <zephyr/drivers/adc.h>
+#endif
 
 //BLE STUFF
 #include <zephyr/bluetooth/bluetooth.h>
@@ -63,9 +74,10 @@ int ei_v2_classify_test(const char **out_label, float *out_score);
 static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
 static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
 static struct bt_conn *current_conn;	// current connection ptr
-/* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) = 17 */
-#define ACCEL_PAYLOAD_SIZE 17
+/* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) + voltage_mv(2) = 19 */
+#define ACCEL_PAYLOAD_SIZE 19
 static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
+#define VOLTAGE_NO_DATA 0xFFFFU
 #define LATENCY_SENTINEL 0xFFFFFFFFU
 // Func for Notifying External Device
 static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
@@ -135,7 +147,7 @@ static void bt_ready(int err)
 
 static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z,
 					       uint32_t inference_us, uint16_t arena_bytes,
-					       uint32_t model_bytes){
+					       uint32_t model_bytes, uint16_t voltage_mv){
 	if (!current_conn) return;
 	accel_value[0] = label;
 	accel_value[1] = x & 0xFF;
@@ -154,6 +166,8 @@ static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t
 	accel_value[14] = (model_bytes >> 8) & 0xFF;
 	accel_value[15] = (model_bytes >> 16) & 0xFF;
 	accel_value[16] = (model_bytes >> 24) & 0xFF;
+	accel_value[17] = voltage_mv & 0xFF;
+	accel_value[18] = (voltage_mv >> 8) & 0xFF;
 	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
 				 accel_value, sizeof(accel_value));
 	if (err) {
@@ -240,6 +254,34 @@ uint8_t fifo_buff[FIFO_SIZE] = { 0 };
 struct bma400_sensor_conf settings;
 struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = { { 0 } };
 
+#if USE_SOLAR_GATEKEEPER
+K_SEM_DEFINE(run_policy, 0, 1);
+volatile bool last_tx_done = true;
+#define THREAD_RUN_POLICY_PRIORITY 8
+#endif
+
+#if USE_ADC
+static int16_t adc_buf;
+static struct adc_sequence adc_seq;
+static const struct adc_dt_spec adc_ch = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
+#define VOLTAGE_THRESHOLD_MV 1600
+
+static uint16_t get_voltage_mv(void)
+{
+	int val_mv;
+	int err = adc_read(adc_ch.dev, &adc_seq);
+	if (err < 0) return VOLTAGE_NO_DATA;
+	val_mv = (int)adc_buf;
+	err = adc_raw_to_millivolts_dt(&adc_ch, &val_mv);
+	if (err < 0) return VOLTAGE_NO_DATA;
+	if (val_mv < 0) return 0;
+	if (val_mv > 65535) return 65535;
+	return (uint16_t)val_mv;
+}
+#else
+static uint16_t get_voltage_mv(void) { return VOLTAGE_NO_DATA; }
+#endif
+
 // callback function for interrupts
 void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
@@ -287,6 +329,11 @@ void thread_read_bma400(void)
 
 		k_sem_take(&bma400_ready, K_FOREVER);
 
+#if USE_SOLAR_GATEKEEPER
+		const struct device *spi_dev = DEVICE_DT_GET(DT_NODELABEL(spi1));
+		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_RESUME);
+#endif
+
 		/* ── 1. Read whatever is in the FIFO ── */
 		bma400_get_fifo_data(&fifo_frame, &bma_sensor);
 		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
@@ -297,7 +344,8 @@ void thread_read_bma400(void)
 			send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
 							accel_data[i].z, LATENCY_SENTINEL,
 							(uint16_t)ei_model_arena_size,
-							ei_model_tflite_len);
+							ei_model_tflite_len,
+							get_voltage_mv());
 
 			/* Copy into ML window */
 			// fills inital buffer [0,25]
@@ -362,7 +410,8 @@ void thread_read_bma400(void)
 					send_prediction_accel_notification(result_to_send, lx, ly, lz,
 									latency_us,
 									(uint16_t)ei_model_arena_size,
-									ei_model_tflite_len);
+									ei_model_tflite_len,
+									get_voltage_mv());
 					printk("Inference latency: %u us | Arena: %u B | Model: %u B\n",
 						latency_us, ei_model_arena_size, ei_model_tflite_len);
 				} else {
@@ -371,10 +420,21 @@ void thread_read_bma400(void)
 		}
 			// ml_idx = 0;  // took out 2/18; because doesn't work w/ sliding window method
 		}
-		/* ── 4. Re-arm sensor ── */
+
+#if USE_SOLAR_GATEKEEPER
+		/* ── 4a. Solar: power down BMA400 + SPI, gate re-arm via run_policy ── */
+		int_en.type = BMA400_FIFO_WM_INT_EN;
+		int_en.conf = BMA400_DISABLE;
+		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+		bma400_set_power_mode(BMA400_MODE_LOW_POWER, &bma_sensor);
+		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
+		last_tx_done = true;
+#else
+		/* ── 4b. Battery: re-arm sensor immediately ── */
 		bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
 		int_en.conf = BMA400_ENABLE;
 		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+#endif
 	}
 
 }
@@ -410,6 +470,50 @@ void thread_read_bma400(void)
 
 // Need to make sure stack is big enough to run NN code
 K_THREAD_DEFINE(thread_read_bma400_id, STACKSIZE*4, thread_read_bma400, NULL, NULL, NULL, THREAD_READ_BMA_PRIORITY, 0, 0);
+
+#if USE_SOLAR_GATEKEEPER
+static void timer_run_policy_handler(struct k_timer *dummy)
+{
+	k_sem_give(&run_policy);
+}
+
+void thread_run_policy(void)
+{
+	while (1) {
+		k_sem_take(&run_policy, K_FOREVER);
+#if USE_ADC
+		{
+			int val_mv;
+			int err = adc_read(adc_ch.dev, &adc_seq);
+			if (err < 0) {
+				LOG_ERR("ADC read failed (%d)", err);
+				continue;
+			}
+			val_mv = (int)adc_buf;
+			err = adc_raw_to_millivolts_dt(&adc_ch, &val_mv);
+			if (err < 0) continue;
+			if (val_mv < VOLTAGE_THRESHOLD_MV || !last_tx_done)
+				continue;
+		}
+#else
+		if (!last_tx_done)
+			continue;
+#endif
+		{
+			const struct device *spi_dev = DEVICE_DT_GET(DT_NODELABEL(spi1));
+			pm_device_action_run(spi_dev, PM_DEVICE_ACTION_RESUME);
+			int_en.type = BMA400_FIFO_WM_INT_EN;
+			int_en.conf = BMA400_ENABLE;
+			bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+			bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+			last_tx_done = false;
+			pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
+		}
+	}
+}
+K_THREAD_DEFINE(thread_run_policy_id, STACKSIZE, thread_run_policy, NULL, NULL, NULL, THREAD_RUN_POLICY_PRIORITY, 0, 0);
+K_TIMER_DEFINE(timer_run_policy, timer_run_policy_handler, NULL);
+#endif
 // Function for SPI Read
 BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr)
 {
@@ -504,11 +608,17 @@ void init_fifo_watermark()
 	fifo_frame.length = FIFO_SIZE;
 
 	int_en.type = BMA400_FIFO_WM_INT_EN;
+#if USE_SOLAR_GATEKEEPER
+	int_en.conf = BMA400_DISABLE;
+	bma400_set_power_mode(BMA400_MODE_LOW_POWER, &bma_sensor);
+	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+	printk("FIFO WM init: solar mode, int disabled, BMA400 sleep (run_policy will arm)\n");
+#else
 	int_en.conf = BMA400_ENABLE;
-
-	bma400_set_power_mode(BMA400_MODE_NORMAL,&bma_sensor);
+	bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
 	rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 	printk("FIFO WM init: set_power_mode + enable_interrupt rslt=%d\n", rslt);
+#endif
 }
 // idk
 void init_activity()
@@ -576,6 +686,25 @@ int main(void)
 		LOG_ERR("Error: GPIO device is not ready, err: %d", err);
 		return -1;
 	}
+#if USE_ADC
+	adc_seq.buffer = &adc_buf;
+	adc_seq.buffer_size = sizeof(adc_buf);
+	if (!adc_is_ready_dt(&adc_ch)) {
+		LOG_ERR("ADC not ready");
+		return -1;
+	}
+	err = adc_channel_setup_dt(&adc_ch);
+	if (err < 0) {
+		LOG_ERR("ADC channel setup failed (%d)", err);
+		return -1;
+	}
+	err = adc_sequence_init_dt(&adc_ch, &adc_seq);
+	if (err < 0) {
+		LOG_ERR("ADC sequence init failed (%d)", err);
+		return -1;
+	}
+#endif
+
 	err = bt_enable(bt_ready);
 	if(err){
 		printk("bt_enable failed (err %d)\n",err);
@@ -606,6 +735,12 @@ int main(void)
 
 	printk("FIFO watermark init done, interrupt pin level: %d\n", gpio_pin_get_dt(&int_pin));
 
+#if USE_SOLAR_GATEKEEPER
+	const struct device *spi_dev = DEVICE_DT_GET(DT_NODELABEL(spi1));
+	pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
+	k_timer_start(&timer_run_policy, K_MSEC(200), K_MSEC(200));
+	printk("Solar mode: run_policy timer 200ms, SPI suspended until armed\n");
+#else
 	/* If the interrupt pin is already high after init, kick the semaphore manually
 	 * This handles the case where BMA400 has stale FIFO data from a previous session
 	 * (chip-erase only erases the nRF, not the BMA400) */
@@ -613,9 +748,7 @@ int main(void)
 		printk("INT pin already high after init — kicking semaphore\n");
 		k_sem_give(&bma400_ready);
 	}
-
-	//const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-	//pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+#endif
 	
 
 	while(1){

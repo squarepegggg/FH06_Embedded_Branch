@@ -12,8 +12,6 @@ add_subdirectory(ei-v2)
 target_sources(app PRIVATE src/main.c)
 target_sources(app PRIVATE src/bma400.c)
 target_sources(app PRIVATE src/ei_glue_v2.cpp)
-
-
 # Add CMSIS-NN include directories
 target_include_directories(app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

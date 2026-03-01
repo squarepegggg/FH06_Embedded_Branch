@@ -200,6 +200,51 @@
   .log .msg.conn { color: var(--green); }
   .log .msg.err  { color: var(--red); }
 
+  /* Sliding prediction window */
+  .prediction-window {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    padding: 12px 16px;
+    margin-bottom: 24px;
+    min-height: 80px;
+  }
+  .prediction-window-placeholder {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .prediction-window-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .prediction-window-items:empty { display: none; }
+  .prediction-window-placeholder:not(:only-child) { display: none; }
+  .pred-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: #161922;
+  }
+  .pred-chip.latest {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.15);
+    animation: pred-pulse 0.4s ease;
+  }
+  @keyframes pred-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+
   /* Responsive */
   @media (max-width: 400px) {
     .grid { grid-template-columns: repeat(2, 1fr); }
@@ -224,10 +269,17 @@
 
 <!-- Hero prediction -->
 <div class="hero" id="hero">
-  <div class="hero-label">Current Activity</div>
+  <div class="hero-label">Current Activity (sliding-window, per-sample inference)</div>
   <div class="hero-icon" id="heroIcon">⏳</div>
   <div class="hero-activity" id="heroActivity">Waiting…</div>
   <div class="hero-index" id="heroIndex">Connect to start receiving predictions</div>
+</div>
+
+<!-- Sliding window of recent predictions -->
+<div class="grid-label">Real-time prediction stream (last 20)</div>
+<div class="prediction-window" id="predictionWindow">
+  <div class="prediction-window-placeholder" id="predictionWindowPlaceholder">No predictions yet</div>
+  <div class="prediction-window-items" id="predictionWindowItems"></div>
 </div>
 
 <!-- Activity grid -->
@@ -274,6 +326,12 @@
     <span class="axis-name">|A|</span>
     <span class="axis-value" id="accelMagMs">--</span>
   </div>
+</div>
+
+<!-- Voltage chart (charge / release when prediction runs) -->
+<div class="accel-label">Solar Voltage (charge up → release on prediction) <span id="voltageCurrent" style="float:right; color:#eab308; font-weight:600;">--</span></div>
+<div class="chart-card">
+  <canvas id="voltageChart" width="520" height="180"></canvas>
 </div>
 
 <!-- Accelerometer chart -->
@@ -325,8 +383,13 @@ let characteristic = null;
 const counts = new Array(7).fill(0);
 let totalPredictions = 0;
 let warnedLegacyPacket = false;
-let lastLabel = -1;     // track to avoid redundant prediction UI updates
 const accelHistory = { x: [], y: [], z: [] };
+const voltageHistory = [];
+const voltagePredictionIndices = [];  // indices where a prediction was made (voltage "release" point)
+const VOLTAGE_MAX_HIST = 300;
+const VOLTAGE_NO_DATA = 0xFFFF;
+const PREDICTION_WINDOW_SIZE = 20;
+const predictionWindow = [];  // sliding window of recent predictions (newest last)
 
 // ── Data rate counter ───────────────────────────────────────
 let sampleCount = 0;
@@ -356,15 +419,16 @@ function log(msg, cls = '') {
   el.scrollTop = el.scrollHeight;
 }
 
-// ── Update UI with a new prediction ─────────────────────────
-function onPrediction(index) {
+// ── Update UI with a new prediction (called for every sliding-window inference) ──
+function onPrediction(index, options = {}) {
+  const { logEvent = true } = options;
   if (index > 6) { log(`Unknown label index: ${index}`, 'err'); return; }
 
   const a = ACTIVITIES[index];
   totalPredictions++;
   counts[index]++;
 
-  // Hero
+  // Hero — always show current prediction
   document.getElementById('heroIcon').textContent = a.icon;
   document.getElementById('heroActivity').textContent = a.name;
   document.getElementById('heroActivity').style.color = a.color;
@@ -379,7 +443,32 @@ function onPrediction(index) {
   document.getElementById(`grid-${index}`).classList.add('active');
   document.getElementById(`count-${index}`).textContent = counts[index];
 
-  log(`${a.icon} ${a.name}  (index ${index}, total ${totalPredictions})`, 'pred');
+  // Sliding window: add to buffer, trim to size
+  predictionWindow.push({ index, name: a.name, icon: a.icon });
+  if (predictionWindow.length > PREDICTION_WINDOW_SIZE) {
+    predictionWindow.shift();
+  }
+  renderPredictionWindow();
+
+  if (logEvent) log(`${a.icon} ${a.name}  (index ${index}, total ${totalPredictions})`, 'pred');
+}
+
+function renderPredictionWindow() {
+  const container = document.getElementById('predictionWindowItems');
+  const placeholder = document.getElementById('predictionWindowPlaceholder');
+  container.innerHTML = '';
+  if (predictionWindow.length === 0) {
+    placeholder.style.display = '';
+    return;
+  }
+  placeholder.style.display = 'none';
+  predictionWindow.forEach((p, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'pred-chip' + (i === predictionWindow.length - 1 ? ' latest' : '');
+    chip.textContent = `${p.icon} ${p.name}`;
+    chip.style.borderColor = ACTIVITIES[p.index].color;
+    container.appendChild(chip);
+  });
 }
 
 function onAccelerometer(x, y, z) {
@@ -417,14 +506,107 @@ function onAccelerometer(x, y, z) {
   scheduleChartRedraw();
 }
 
+function onVoltage(voltageMv, isPrediction) {
+  if (voltageMv === VOLTAGE_NO_DATA) return;
+  document.getElementById('voltageCurrent').textContent = voltageMv + ' mV';
+  voltageHistory.push(voltageMv);
+  if (isPrediction) voltagePredictionIndices.push(voltageHistory.length - 1);
+  if (voltageHistory.length > VOLTAGE_MAX_HIST) {
+    voltageHistory.shift();
+    voltagePredictionIndices = voltagePredictionIndices.map(i => i - 1).filter(i => i >= 0);
+  }
+  scheduleChartRedraw();
+}
+
 // ── Throttled chart redraw (cap at ~20fps to stay smooth) ───
 let chartRedrawScheduled = false;
 function scheduleChartRedraw() {
   if (chartRedrawScheduled) return;
   chartRedrawScheduled = true;
   requestAnimationFrame(() => {
+    drawVoltageChart();
     drawAccelChart();
     chartRedrawScheduled = false;
+  });
+}
+
+// ── Voltage chart (charge / release on prediction) ─────────
+function drawVoltageChart() {
+  const canvas = document.getElementById('voltageChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const W = rect.width - 32;
+  const H = 180;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  if (voltageHistory.length < 2) {
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Enable ADC + solar PCB for voltage data', W / 2, H / 2);
+    return;
+  }
+
+  let minV = Math.min(...voltageHistory);
+  let maxV = Math.max(...voltageHistory);
+  if (maxV - minV < 50) { const mid = (maxV + minV) / 2; minV = mid - 50; maxV = mid + 50; }
+  const pad = Math.max((maxV - minV) * 0.1, 20);
+  minV -= pad;
+  maxV += pad;
+
+  const n = voltageHistory.length;
+  const xStep = W / (n - 1);
+
+  // Grid
+  ctx.strokeStyle = '#2a2d3a';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const gy = (H / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+  }
+
+  // Y-axis labels (mV)
+  ctx.fillStyle = '#555';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  for (let i = 0; i <= 4; i++) {
+    const gy = (H / 4) * i;
+    const val = maxV - (i / 4) * (maxV - minV);
+    ctx.fillText(Math.round(val) + ' mV', 2, gy + 10);
+  }
+
+  // Voltage line (amber/gold for solar)
+  ctx.strokeStyle = '#eab308';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const px = i * xStep;
+    const py = H - ((voltageHistory[i] - minV) / (maxV - minV)) * H;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Prediction markers (voltage "release" points)
+  const predSet = new Set(voltagePredictionIndices);
+  predSet.forEach(i => {
+    if (i >= 0 && i < n) {
+      const px = i * xStep;
+      const py = H - ((voltageHistory[i] - minV) / (maxV - minV)) * H;
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0f1117';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   });
 }
 
@@ -540,6 +722,9 @@ function onMLProfiling(inferenceUs, arenaBytes, modelBytes) {
 }
 
 // ── BLE notification handler ────────────────────────────────
+// Firmware sends: (1) accel-only with cached label + LATENCY_SENTINEL, (2) fresh inference with real latency.
+// Only treat packets with real inference latency as new sliding-window predictions.
+let lastLoggedLabel = -1;
 function onNotification(event) {
   const value = event.target.value;
 
@@ -551,13 +736,17 @@ function onNotification(event) {
     const inferenceUs = value.getUint32(7, true);
     const arenaBytes  = value.getUint16(11, true);
     const modelBytes  = value.getUint32(13, true);
+    const voltageMv   = value.byteLength >= 19 ? value.getUint16(17, true) : VOLTAGE_NO_DATA;
+    const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
 
-    if (label <= 6 && label !== lastLabel) {
-      onPrediction(label);
-      lastLabel = label;
+    if (isPrediction) {
+      const logEvent = label !== lastLoggedLabel;
+      if (logEvent) lastLoggedLabel = label;
+      onPrediction(label, { logEvent });
     }
     onAccelerometer(x, y, z);
     onMLProfiling(inferenceUs, arenaBytes, modelBytes);
+    onVoltage(voltageMv, isPrediction);
     return;
   }
 
@@ -566,17 +755,14 @@ function onNotification(event) {
     const x = value.getInt16(1, true);
     const y = value.getInt16(3, true);
     const z = value.getInt16(5, true);
-    if (label <= 6 && label !== lastLabel) {
-      onPrediction(label);
-      lastLabel = label;
-    }
+    if (label <= 6) onPrediction(label);
     onAccelerometer(x, y, z);
     return;
   }
 
   if (value.byteLength >= 1) {
     const byte = value.getUint8(0);
-    onPrediction(byte);
+    if (byte <= 6) onPrediction(byte);
     if (!warnedLegacyPacket) {
       log('Received legacy 1-byte packet. Reflash latest firmware for full payload.', 'err');
       warnedLegacyPacket = true;
@@ -638,6 +824,14 @@ function setConnected(connected) {
   st.className = 'status-text' + (connected ? ' connected' : '');
   document.getElementById('btnConnect').disabled = connected;
   document.getElementById('btnDisconnect').disabled = !connected;
+  if (!connected) {
+    predictionWindow.length = 0;
+    voltageHistory.length = 0;
+    voltagePredictionIndices.length = 0;
+    lastLoggedLabel = -1;
+    document.getElementById('voltageCurrent').textContent = '--';
+    renderPredictionWindow();
+  }
 }
 </script>
 
