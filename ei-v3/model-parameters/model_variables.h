@@ -46,7 +46,7 @@
 #include "edge-impulse-sdk/classifier/inferencing_engines/engines.h"
 #include "edge-impulse-sdk/classifier/postprocessing/ei_postprocessing_common.h"
 
-const char* ei_classifier_inferencing_categories_801862_14[] = { "class 1", "class 2", "class 3", "class 4", "class 5", "class 6", "class 7" };
+const char* ei_classifier_inferencing_categories_801862_14[] = { "downstairs", "jump", "running", "sitting", "standing", "upstairs", "walking" };
 
 EI_CLASSIFIER_DSP_AXES_INDEX_TYPE ei_dsp_config_801862_18_axes[] = { 0 };
 const uint32_t ei_dsp_config_801862_18_axes_size = 1;

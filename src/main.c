@@ -378,7 +378,9 @@ void thread_run_policy(void)
 			val_mv = (int)adc_buf;
 			err = adc_raw_to_millivolts_dt(&adc_ch, &val_mv);
 			if (err < 0) continue;
-			if (val_mv < VOLTAGE_THRESHOLD_MV || !last_tx_done)
+			if (!last_tx_done)
+    			continue;
+			if (val_mv < VOLTAGE_THRESHOLD_MV && !current_conn)
 				continue;
 		}
 #else
