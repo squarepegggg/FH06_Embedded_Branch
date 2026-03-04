@@ -16,13 +16,37 @@ def load_csv_data(csv_dir="."):
     all_labels = []  # One label per file
     
     for csv_file in csv_files:
-        # Extract label from filename: "Andres_sitting.csv" -> "sitting"
-        filename = Path(csv_file).stem  # Gets "Andres_sitting" without .csv
-        # Find the first underscore and take everything after it
+        # Extract a clean activity label from the filename.
+        # Examples:
+        #   "Andres_sitting.csv"          -> "sitting"
+        #   "NK walking 1min.csv"        -> "walking"
+        #   "NK Upstairs 1min.csv"       -> "upstairs"
+        filename = Path(csv_file).stem  # e.g. "Andres_sitting", "NK walking 1min"
+
         if "_" in filename:
-            label = filename.split("_", 1)[1]  # Split on first underscore, take second part
+            # Original scheme: use everything after the first underscore.
+            label = filename.split("_", 1)[1]
         else:
-            label = filename  # Fallback if no underscore
+            # For filenames without underscores (e.g. "NK walking 1min"),
+            # infer the activity from keywords so different people share the same label set.
+            lower_name = filename.lower()
+            if "running" in lower_name:
+                label = "running"
+            elif "walking" in lower_name:
+                label = "walking"
+            elif "stand" in lower_name:
+                label = "standing"
+            elif "sit" in lower_name:
+                label = "sitting"
+            elif "upstairs" in lower_name:
+                label = "upstairs"
+            elif "downstairs" in lower_name:
+                label = "downstairs"
+            elif "jump" in lower_name:
+                label = "jump"
+            else:
+                # Fallback: use the whole filename if we cannot infer a known activity.
+                label = filename
         
         # Load CSV data
         df = pd.read_csv(csv_file)
