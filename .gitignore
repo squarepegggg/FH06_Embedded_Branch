@@ -6,10 +6,10 @@
 
 # ──────────────────────────────────────────────
 #  Edge Impulse SDK (large, auto-generated)
-#  Keep ei-v2/CMakeLists.txt, model-parameters/,
+#  Keep ei-v3/CMakeLists.txt, model-parameters/,
 #  and tflite-model/ but ignore the SDK itself
 # ──────────────────────────────────────────────
-ei-v2/edge-impulse-sdk/
+ei-v3/edge-impulse-sdk/
 
 # ──────────────────────────────────────────────
 #  IDE / Editor

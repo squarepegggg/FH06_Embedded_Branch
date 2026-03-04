@@ -30,7 +30,7 @@ We are currently flashing this firmware onto a **custom PCB** with the nRF52832 
 | Solar-powered operation | ✅ In progress |
 | BMA400 accelerometer (SPI, FIFO, interrupt-driven) | ✅ Complete |
 | 25-sample sliding window, Edge Impulse feature format | ✅ Complete |
-| On-device ML inference (ei-v2 1D CNN, INT8) | ✅ Complete |
+| On-device ML inference (ei-v3 1D CNN, INT8) | ✅ Complete |
 | BLE GATT notifications (label + X,Y,Z + profiling) | ✅ Complete |
 | Web Bluetooth dashboard | ✅ Complete |
 | Power optimization (gatekeeper, deep sleep, duty cycling) | 🔄 Active focus |
@@ -52,12 +52,12 @@ Because the device is powered solely by solar harvesting, we are actively explor
 ├── src/
 │   ├── main.c           # Main firmware: BMA400 thread, ML integration, BLE
 │   ├── bma400.c         # BMA400 driver (SPI, FIFO)
-│   └── ei_glue_v2.cpp   # Edge Impulse model wrapper
+│   └── ei_glue_v3.cpp   # Edge Impulse model wrapper
 ├── include/
-│   ├── glueV2.h         # C API for classifier
+│   ├── glueV3.h         # C API for classifier
 │   ├── bma400.h         # BMA400 driver API
 │   └── bma400_defs.h
-├── ei-v2/               # Edge Impulse model (TFLite, model metadata)
+├── ei-v3/               # Edge Impulse model (TFLite, model metadata)
 ├── ble_dashboard.html   # Web Bluetooth dashboard for live testing
 ├── boards/              # Zephyr board overlays (nRF52 DK)
 ├── prj.conf             # Zephyr / Nordic config

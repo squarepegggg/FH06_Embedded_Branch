@@ -54,7 +54,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 
-int ei_v2_classify_test(const char **out_label, float *out_score);
+int ei_v3_classify_test(const char **out_label, float *out_score);
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -380,7 +380,7 @@ void thread_read_bma400(void)
 				float predictedScore = 0.0f;
 
 				uint32_t start_cyc = k_cycle_get_32();
-				int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
+				int inferenceResult = ei_v3_classify_test(&predictedLabel, &predictedScore);
 				uint32_t end_cyc = k_cycle_get_32();
 				uint32_t delta_cyc = end_cyc - start_cyc;
 				uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /

@@ -1,9 +1,9 @@
 /**
  * run_nn.c - Bridge from BMA400 accel data to Edge Impulse classifier.
- * Fills demo_data, calls ei_v2_classify_test, sets biggest_idx.
+ * Fills demo_data, calls ei_v3_classify_test, sets biggest_idx.
  */
 #include "run_nn.h"
-#include "glueV2.h"
+#include "glueV3.h"
 #include <string.h>
 
 int biggest_idx = 0;
@@ -24,7 +24,7 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 
 	const char *label = NULL;
 	float score = 0.0f;
-	int err = ei_v2_classify_test(&label, &score);
+	int err = ei_v3_classify_test(&label, &score);
 
 	if (err != 0 || label == NULL) {
 		biggest_idx = 0;
