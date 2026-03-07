@@ -88,9 +88,7 @@ static const struct bt_data ad[] = {
 static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
 #define VOLTAGE_NO_DATA 0xFFFFU
 #define LATENCY_SENTINEL 0xFFFFFFFFU
-// Func for Notifying External Device
-static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
-}
+
 
 void bma400_delay_us(uint32_t period, void *intf_ptr) {
 	k_usleep(period);
@@ -245,13 +243,13 @@ void thread_read_bma400(void)
 
 		
 		// after reading, disable the interrupt and put the bma400 to sleep
-		// int_en.type = BMA400_FIFO_WM_INT_EN;
-		// int_en.conf = BMA400_DISABLE;
-		// int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-		// bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
+		int_en.type = BMA400_FIFO_WM_INT_EN;
+		int_en.conf = BMA400_DISABLE;
+		int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+		bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
 
-			// Disable SPI
-		// pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+		//	Disable SPI
+		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
 
 
 
