@@ -48,17 +48,41 @@
 //																		//
 //////////////////////////////////////////////////////////////////////////
 
-// BLE STUFF
-#define DEVICE_NAME       CONFIG_BT_DEVICE_NAME	// Name of Device
-#define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)	// Length of device
-#define BT_UUID_ACCEL_SERVICE_VAL \
-	BT_UUID_128_ENCODE(0x12345678,0x1234,0x5678,0x1234,0x1234567890ab)	// ID of device
 
-#define BT_UUID_ACCEL_CHAR_VAL \
-	BT_UUID_128_ENCODE(0x12345679,0x1234,0x5678,0x1234,0x1234567890ab)	// how many chars of ID
-static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
-static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
-static struct bt_conn *current_conn;	// current connection ptr
+// BLE ADV_NCONN (3/7)
+
+// step 2.1 Company ID
+#define COMPANY_ID_CODE 0x0059 // declare company ID
+
+//step 2.2 custom data struct
+typedef struct adv_mfg_data {
+	uint16_t company_code;
+	uint8_t ML_Predicition_Data; // # of predicitions in a packet
+}adv_mfg_data_type;
+
+
+// step 3: made the variable
+// static adv_mfg_data_type adv_mfg_data = { COMPANY_ID_CODE, 0x00 };
+// BT_LE_ADV_PARAM(_options, _int_min, _int_max,_peer)
+// _options = adv options
+// _int_min = min advterising interval
+// _int_max = max advertising interval
+// _peer = address, set to null for undirected advertising
+static const struct bt_le_adv_param *adv_param =
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY,
+	32,
+	33,
+	NULL);
+
+static adv_mfg_data_type adv_mfg_data = {
+	.company_code = COMPANY_ID_CODE,
+	.ML_Predicition_Data = 0x0
+};
+
+static const struct bt_data ad[] = {
+    BT_DATA(BT_DATA_MANUFACTURER_DATA, (unsigned char *)&adv_mfg_data, sizeof(adv_mfg_data)),
+};
+
 /* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) + voltage_mv(2) = 19 */
 #define ACCEL_PAYLOAD_SIZE 19
 static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
@@ -67,61 +91,24 @@ static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
 // Func for Notifying External Device
 static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
 }
-// Initialization Constructor
-BT_GATT_SERVICE_DEFINE(accel_svc,
-	BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
-	BT_GATT_CHARACTERISTIC(&accel_char_uuid.uuid,
-			       BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_NONE,
-			       NULL, NULL, accel_value),
-	BT_GATT_CCC(accel_ccc_cfg_changed,
-		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)
-);
 
-// Forward declaration
-static void request_fast_ble_interval(void);
-
-// BLE HELPER FUNCTIONS
-static void connected(struct bt_conn *conn, uint8_t err)
-{
-	if (err) {
-		return;
-	}
-	current_conn = bt_conn_ref(conn);
-	/* Kick a fast connection interval so BLE notifications arrive in real-time */
-	request_fast_ble_interval();
-}
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	if (current_conn) {
-		bt_conn_unref(current_conn);
-		current_conn = NULL;
-	}
-}
-BT_CONN_CB_DEFINE(conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
+void bma400_delay_us(uint32_t period, void *intf_ptr) {
+	k_usleep(period);
 };
 
-static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-};
-
+BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr);
+BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len, void* intf_ptr);
 // called from main to see if BT is ready
 static void bt_ready(int err)
 {
 	if (err) {
 		return;
 	}
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad),
+	err = bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad),
 			      NULL, 0);
 }
 
-static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z,
-					       uint32_t inference_us, uint16_t arena_bytes,
-					       uint32_t model_bytes, uint16_t voltage_mv){
-	if (!current_conn) return;
+static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z, uint32_t inference_us, uint16_t arena_bytes, uint32_t model_bytes, uint16_t voltage_mv){
 	accel_value[0] = label;
 	accel_value[1] = x & 0xFF;
 	accel_value[2] = (x >> 8) & 0xFF;
@@ -141,26 +128,14 @@ static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t
 	accel_value[16] = (model_bytes >> 24) & 0xFF;
 	accel_value[17] = voltage_mv & 0xFF;
 	accel_value[18] = (voltage_mv >> 8) & 0xFF;
-	bt_gatt_notify(current_conn, &accel_svc.attrs[1],
-		       accel_value, sizeof(accel_value));
 }
 
-/* Request a balanced BLE connection interval: responsive enough for
- * near-real-time data while keeping the radio duty cycle low. */
-static void request_fast_ble_interval(void)
-{
-	if (!current_conn) return;
-	/* min 30ms, max 50ms, latency 0, timeout 4s */
-	static const struct bt_le_conn_param fast_params =
-		BT_LE_CONN_PARAM_INIT(24, 40, 0, 400);
-	bt_conn_le_param_update(current_conn, &fast_params);
-}
+
 
 /* Cached ML result so accel-only updates still carry the latest label */
 static uint8_t cached_label = 0xFF;
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_WRN);
-
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -172,6 +147,11 @@ LOG_MODULE_REGISTER(app, LOG_LEVEL_WRN);
 #define STACKSIZE 2048
 #define THREAD_READ_BMA_PRIORITY 7
 K_SEM_DEFINE(bma400_ready, 0, 1);
+#if USE_SOLAR_GATEKEEPER
+K_SEM_DEFINE(run_policy, 0, 1);
+volatile bool last_tx_done = true;
+#define THREAD_RUN_POLICY_PRIORITY 8
+#endif
 
 // SPI
 #define SPIOP	SPI_WORD_SET(8) | SPI_TRANSFER_MSB
@@ -183,6 +163,14 @@ uint8_t rx_buffer[128] = {0};
 static const struct gpio_dt_spec int_pin = GPIO_DT_SPEC_GET(int_NODE, gpios);
 static struct gpio_callback int_cb_data;
 
+
+// ADC
+#if USE_ADC
+static int16_t adc_buf;
+static struct adc_sequence adc_seq;
+static const struct adc_dt_spec adc_ch = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
+#define VOLTAGE_THRESHOLD_MV 1600
+
 // BMA400
 #define FIFO_SAMPLES 25
 #define FIFO_BATCH  5
@@ -190,11 +178,12 @@ static struct gpio_callback int_cb_data;
 #define FIFO_FULL_SIZE          UINT16_C(1024)
 #define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
 
-BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr);
-BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len, void* intf_ptr);
-void bma400_delay_us(uint32_t period, void *intf_ptr) {
-	k_usleep(period);
-}
+struct bma400_int_enable int_en;
+struct bma400_fifo_data fifo_frame;
+struct bma400_device_conf fifo_conf;
+struct bma400_sensor_conf conf;
+uint8_t fifo_buff[FIFO_SIZE] = { 0 };
+struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = { { 0 } };
 
 static uint8_t              dev_addr    = 31;
 struct bma400_dev           bma_sensor         = {
@@ -206,24 +195,11 @@ struct bma400_dev           bma_sensor         = {
         .read_write_len = 8
 };
 
-struct bma400_int_enable int_en;
-struct bma400_fifo_data fifo_frame;
-struct bma400_device_conf fifo_conf;
-struct bma400_sensor_conf conf;
-uint8_t fifo_buff[FIFO_SIZE] = { 0 };
-struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = { { 0 } };
-
-#if USE_SOLAR_GATEKEEPER
-K_SEM_DEFINE(run_policy, 0, 1);
-volatile bool last_tx_done = true;
-#define THREAD_RUN_POLICY_PRIORITY 8
-#endif
-
-#if USE_ADC
-static int16_t adc_buf;
-static struct adc_sequence adc_seq;
-static const struct adc_dt_spec adc_ch = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
-#define VOLTAGE_THRESHOLD_MV 1600
+BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr);
+BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len, void* intf_ptr);
+// void bma400_delay_us(uint32_t period, void *intf_ptr) {
+// 	k_usleep(period);
+// };
 
 static uint16_t get_voltage_mv(void)
 {
@@ -254,9 +230,7 @@ void thread_read_bma400(void)
 	 * is sent on every batch for near-real-time display (~5Hz). */
 	struct bma400_fifo_sensor_data ml_window[FIFO_SAMPLES];
 	int ml_idx = 0;   /* how many samples in ml_window so far */
-
 	while (1) {
-
 		k_sem_take(&bma400_ready, K_FOREVER);
 
 #if USE_SOLAR_GATEKEEPER
@@ -268,6 +242,19 @@ void thread_read_bma400(void)
 		bma400_get_fifo_data(&fifo_frame, &bma_sensor);
 		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
 		bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
+
+		
+		// after reading, disable the interrupt and put the bma400 to sleep
+		// int_en.type = BMA400_FIFO_WM_INT_EN;
+		// int_en.conf = BMA400_DISABLE;
+		// int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+		// bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
+
+			// Disable SPI
+		// pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+
+
+
 
 		uint16_t batch_voltage = get_voltage_mv();
 
@@ -323,9 +310,20 @@ void thread_read_bma400(void)
 
 					cached_label = result_to_send;
 
+					int8_t biggest = 0;
+					adv_mfg_data.ML_Predicition_Data = result_to_send;
+					
 					int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
 					int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
 					int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
+
+					// nrf phone App
+					bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0); // update adv data
+					bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), NULL, 0); // start advertising
+					k_sleep(K_MSEC(10)); // wait at least one cycle
+					bt_le_adv_stop(); // stop advertising
+
+				
 					send_prediction_accel_notification(result_to_send, lx, ly, lz,
 								latency_us,
 								(uint16_t)ei_model_arena_size,
@@ -380,7 +378,7 @@ void thread_run_policy(void)
 			if (err < 0) continue;
 			if (!last_tx_done)
     			continue;
-			if (val_mv < VOLTAGE_THRESHOLD_MV && !current_conn)
+			if (val_mv < VOLTAGE_THRESHOLD_MV)
 				continue;
 		}
 #else
@@ -465,7 +463,7 @@ void init_fifo_watermark()
 										| BMA400_FIFO_Z_EN	
 										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change (12-bit mode for full resolution)
 	fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
-	fifo_conf.param.fifo_conf.fifo_watermark = 1;
+	fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;
 	fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
 
 	rslt = bma400_set_device_conf(&fifo_conf, 1, &bma_sensor);
@@ -524,6 +522,9 @@ int main(void)
 	}
 #endif
 
+	bt_addr_le_t addr;
+    err = bt_addr_le_from_str("FF:EE:DD:CC:BB:AD", "random", &addr);
+    err = bt_id_create(&addr, NULL);
 	err = bt_enable(bt_ready);
 	if(err){
 		return -1;
