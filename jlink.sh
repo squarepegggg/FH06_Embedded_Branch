@@ -9,6 +9,9 @@ if [[ ! -f "${HEX_FILE}" ]]; then
   HEX_FILE="${SCRIPT_DIR}/build/zephyr/zephyr.hex"
 fi
 if [[ ! -f "${HEX_FILE}" ]]; then
+  HEX_FILE="${SCRIPT_DIR}/build_solar/zephyr/zephyr.hex"
+fi
+if [[ ! -f "${HEX_FILE}" ]]; then
   HEX_FILE="${SCRIPT_DIR}/build/merged.hex"
 fi
 
@@ -17,6 +20,7 @@ if [[ ! -f "${HEX_FILE}" ]]; then
   echo "Expected one of:"
   echo "  ${SCRIPT_DIR}/build/FH06_Embedded_Branch/zephyr/zephyr.hex"
   echo "  ${SCRIPT_DIR}/build/zephyr/zephyr.hex"
+  echo "  ${SCRIPT_DIR}/build_solar/zephyr/zephyr.hex"
   echo "  ${SCRIPT_DIR}/build/merged.hex"
   exit 1
 fi

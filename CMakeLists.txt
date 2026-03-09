@@ -11,6 +11,7 @@ project(bma400_sample)
 add_subdirectory(ei-v3)
 target_sources(app PRIVATE src/main.c)
 target_sources(app PRIVATE src/bma400.c)
+target_sources(app PRIVATE src/run_nn.c)
 target_sources(app PRIVATE src/ei_glue_v3.cpp)
 # Add CMSIS-NN include directories
 target_include_directories(app PRIVATE

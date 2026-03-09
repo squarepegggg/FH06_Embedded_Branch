@@ -1,5 +1,7 @@
 /* STEP 2.1 - Create an overlay file for your board */
 
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
 /{
 	zephyr,user {
 		io-channels = <&adc 0>;
@@ -56,7 +58,7 @@
  bma400: bma400@0 {
  compatible = "bosch,bma4xx";
  reg = <0>;
- spi-max-frequency = <1000000>; 
+ spi-max-frequency = <500000>;
  };
 };
 
@@ -76,4 +78,9 @@
  low-power-enable;
  };
  };
+};
+
+/* nRF52 DC-DC: lower average current for solar / limited supply */
+&reg {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
 };

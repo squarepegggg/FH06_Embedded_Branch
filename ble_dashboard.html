@@ -263,16 +263,16 @@
 <div class="conn-bar">
   <div class="status-dot" id="statusDot"></div>
   <span class="status-text" id="statusText">Disconnected</span>
-  <button id="btnConnect" onclick="connectBLE()">Connect</button>
-  <button id="btnDisconnect" class="disconnect" onclick="disconnectBLE()" disabled>Disconnect</button>
+  <button id="btnConnect" onclick="startScan()">Start scanning</button>
+  <button id="btnDisconnect" class="disconnect" onclick="stopScan()" disabled>Stop scanning</button>
 </div>
 
 <!-- Hero prediction -->
 <div class="hero" id="hero">
-  <div class="hero-label">Current Activity (sliding-window, per-sample inference)</div>
+  <div class="hero-label">Current Activity (from BLE advertising)</div>
   <div class="hero-icon" id="heroIcon">⏳</div>
   <div class="hero-activity" id="heroActivity">Waiting…</div>
-  <div class="hero-index" id="heroIndex">Connect to start receiving predictions</div>
+  <div class="hero-index" id="heroIndex">Start scanning to receive predictions from advertisements</div>
 </div>
 
 <!-- Sliding window of recent predictions -->
@@ -291,45 +291,45 @@
 <div class="accel-card">
   <div class="axis">
     <span class="axis-name">X</span>
-    <span class="axis-value" id="accelX">--</span>
+    <span class="axis-value" id="accelX">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">Y</span>
-    <span class="axis-value" id="accelY">--</span>
+    <span class="axis-value" id="accelY">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">Z</span>
-    <span class="axis-value" id="accelZ">--</span>
+    <span class="axis-value" id="accelZ">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">|A|</span>
-    <span class="axis-value" id="accelMag">--</span>
+    <span class="axis-value" id="accelMag">N/A (adv)</span>
   </div>
 </div>
 
 <!-- Accelerometer m/s² -->
-<div class="accel-label">PCB Accelerometer — Physical (m/s²)</div>
+<div class="accel-label">PCB Accelerometer — Physical (m/s²) <span style="color:var(--muted); font-weight:normal;">(advertising mode: prediction only)</span></div>
 <div class="accel-card">
   <div class="axis">
     <span class="axis-name">X</span>
-    <span class="axis-value" id="accelXms">--</span>
+    <span class="axis-value" id="accelXms">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">Y</span>
-    <span class="axis-value" id="accelYms">--</span>
+    <span class="axis-value" id="accelYms">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">Z</span>
-    <span class="axis-value" id="accelZms">--</span>
+    <span class="axis-value" id="accelZms">N/A (adv)</span>
   </div>
   <div class="axis">
     <span class="axis-name">|A|</span>
-    <span class="axis-value" id="accelMagMs">--</span>
+    <span class="axis-value" id="accelMagMs">N/A (adv)</span>
   </div>
 </div>
 
 <!-- Voltage chart (charge / release when prediction runs) -->
-<div class="accel-label">Solar Voltage (charge up → release on prediction) <span id="voltageCurrent" style="float:right; color:#eab308; font-weight:600;">--</span></div>
+<div class="accel-label">Solar Voltage <span style="color:var(--muted); font-weight:normal;">(advertising mode: N/A)</span> <span id="voltageCurrent" style="float:right; color:#eab308; font-weight:600;">--</span></div>
 <div class="chart-card">
   <canvas id="voltageChart" width="520" height="180"></canvas>
 </div>
@@ -341,7 +341,7 @@
 </div>
 
 <!-- ML Profiling -->
-<div class="accel-label">ML Profiling</div>
+<div class="accel-label">ML Profiling <span style="color:var(--muted); font-weight:normal;">(advertising mode: N/A)</span></div>
 <div class="accel-card" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
   <div class="axis">
     <span class="axis-name">Inference Latency</span>
@@ -362,9 +362,8 @@
 <div class="log" id="log"></div>
 
 <script>
-// ── BLE UUIDs (must match main.c) ──────────────────────────
-const SERVICE_UUID  = '12345678-1234-5678-1234-1234567890ab';
-const CHAR_UUID     = '12345679-1234-5678-1234-1234567890ab';
+// ── BLE: Advertising-only (manufacturer data), no GATT ─────
+const MANUFACTURER_ID = 0x0059;  // Company ID in adv_mfg_data (main3.c)
 
 // ── Activity definitions ────────────────────────────────────
 const ACTIVITIES = [
@@ -378,18 +377,18 @@ const ACTIVITIES = [
 ];
 
 // ── State ───────────────────────────────────────────────────
-let device = null;
-let characteristic = null;
+let lescan = null;
+let scanning = false;
 const counts = new Array(7).fill(0);
 let totalPredictions = 0;
-let warnedLegacyPacket = false;
 const accelHistory = { x: [], y: [], z: [] };
 const voltageHistory = [];
-const voltagePredictionIndices = [];  // indices where a prediction was made (voltage "release" point)
+let voltagePredictionIndices = [];  // indices where a prediction was made
 const VOLTAGE_MAX_HIST = 300;
 const VOLTAGE_NO_DATA = 0xFFFF;
 const PREDICTION_WINDOW_SIZE = 20;
-const predictionWindow = [];  // sliding window of recent predictions (newest last)
+const predictionWindow = [];
+let lastLoggedLabel = -1;
 
 // ── Data rate counter ───────────────────────────────────────
 let sampleCount = 0;
@@ -451,6 +450,11 @@ function onPrediction(index, options = {}) {
   renderPredictionWindow();
 
   if (logEvent) log(`${a.icon} ${a.name}  (index ${index}, total ${totalPredictions})`, 'pred');
+
+  if (scanning && totalPredictions === 1) {
+    const st = document.getElementById('statusText');
+    st.textContent = 'Receiving (advertising)';
+  }
 }
 
 function renderPredictionWindow() {
@@ -721,117 +725,81 @@ function onMLProfiling(inferenceUs, arenaBytes, modelBytes) {
   }
 }
 
-// ── BLE notification handler ────────────────────────────────
-// Firmware sends: (1) accel-only with cached label + LATENCY_SENTINEL, (2) fresh inference with real latency.
-// Only treat packets with real inference latency as new sliding-window predictions.
-let lastLoggedLabel = -1;
-function onNotification(event) {
-  const value = event.target.value;
-
-  if (value.byteLength >= 17) {
-    const label       = value.getUint8(0);
-    const x           = value.getInt16(1, true);
-    const y           = value.getInt16(3, true);
-    const z           = value.getInt16(5, true);
-    const inferenceUs = value.getUint32(7, true);
-    const arenaBytes  = value.getUint16(11, true);
-    const modelBytes  = value.getUint32(13, true);
-    const voltageMv   = value.byteLength >= 19 ? value.getUint16(17, true) : VOLTAGE_NO_DATA;
-    const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
-
-    if (isPrediction) {
-      const logEvent = label !== lastLoggedLabel;
-      if (logEvent) lastLoggedLabel = label;
-      onPrediction(label, { logEvent });
-    }
-    onAccelerometer(x, y, z);
-    onMLProfiling(inferenceUs, arenaBytes, modelBytes);
-    onVoltage(voltageMv, isPrediction);
-    return;
-  }
-
-  if (value.byteLength >= 7) {
-    const label = value.getUint8(0);
-    const x = value.getInt16(1, true);
-    const y = value.getInt16(3, true);
-    const z = value.getInt16(5, true);
-    if (label <= 6) onPrediction(label);
-    onAccelerometer(x, y, z);
-    return;
-  }
-
-  if (value.byteLength >= 1) {
-    const byte = value.getUint8(0);
-    if (byte <= 6) onPrediction(byte);
-    if (!warnedLegacyPacket) {
-      log('Received legacy 1-byte packet. Reflash latest firmware for full payload.', 'err');
-      warnedLegacyPacket = true;
-    }
-    return;
-  }
-
-  log('Received empty BLE packet', 'err');
+// ── BLE advertising: parse manufacturer data (company 0x0059, 1 byte pred) ──
+function onAdvertisementReceived(event) {
+  const data = event.manufacturerData.get(MANUFACTURER_ID);
+  if (!data || data.byteLength < 1) return;
+  // Payload: either just pred (1 byte) or company_code (2) + pred (1)
+  const pred = data.byteLength >= 3 ? data.getUint8(2) : data.getUint8(0);
+  if (pred > 6) return;
+  const logEvent = pred !== lastLoggedLabel;
+  if (logEvent) lastLoggedLabel = pred;
+  onPrediction(pred, { logEvent });
 }
 
-// ── Connect ─────────────────────────────────────────────────
-async function connectBLE() {
+// ── Start BLE scan for advertisements ───────────────────────
+// ── Start BLE scan using the Device Picker ───────────────────────
+// ── Start BLE scan for advertisements ───────────────────────
+async function startScan() {
   try {
-    log('Scanning for AccelDevice…', 'conn');
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ name: 'AccelDevice' }],
-      optionalServices: [SERVICE_UUID],
+    if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
+      log('BLE scanning requires Chrome 89+ (desktop/Android). Ensure chrome://flags/#enable-experimental-web-platform-features is enabled.', 'err');
+      return;
+    }
+    
+    log('Starting BLE scan for Nordic devices...', 'conn');
+    setScanning(true, 'scanning');
+    
+    // Explicitly filter for Nordic's Company ID (0x0059)
+    lescan = await navigator.bluetooth.requestLEScan({
+      filters: [{ manufacturerData: [{ companyIdentifier: MANUFACTURER_ID }] }],
+      keepRepeatedDevices: true,
     });
-
-    device.addEventListener('gattserverdisconnected', () => {
-      setConnected(false);
-      log('Device disconnected', 'err');
-    });
-
-    log('Connecting to GATT server…', 'conn');
-    const server = await device.gatt.connect();
-
-    log('Getting service…', 'conn');
-    const service = await server.getPrimaryService(SERVICE_UUID);
-
-    log('Getting characteristic…', 'conn');
-    characteristic = await service.getCharacteristic(CHAR_UUID);
-
-    log('Subscribing to notifications…', 'conn');
-    await characteristic.startNotifications();
-    characteristic.addEventListener('characteristicvaluechanged', onNotification);
-
-    setConnected(true);
-    log('✅ Connected & subscribed — waiting for predictions', 'conn');
-
+    
+    navigator.bluetooth.addEventListener('advertisementreceived', onAdvertisementReceived);
+    log('✅ Scanning — waiting for advertising bursts', 'conn');
+    
   } catch (err) {
     log(`Error: ${err.message}`, 'err');
+    setScanning(false);
   }
 }
 
-// ── Disconnect ──────────────────────────────────────────────
-function disconnectBLE() {
-  if (device && device.gatt.connected) {
-    device.gatt.disconnect();
+// ── Stop BLE scan ───────────────────────────────────────────
+function stopScan() {
+  if (lescan) {
+    lescan.removeEventListener('advertisementreceived', onAdvertisementReceived);
+    // Stop watching advertisements
+    if (lescan.watchingAdvertisements) {
+        lescan.unwatchAdvertisements();
+    }
+    lescan = null;
   }
-  setConnected(false);
+  setScanning(false);
 }
 
-// ── UI state helpers ────────────────────────────────────────
-function setConnected(connected) {
-  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+// ── UI state ─────────────────────────────────────────────────
+function setScanning(active, status = '') {
+  scanning = active;
   const st = document.getElementById('statusText');
-  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
-  st.className = 'status-text' + (connected ? ' connected' : '');
-  document.getElementById('btnConnect').disabled = connected;
-  document.getElementById('btnDisconnect').disabled = !connected;
-  if (!connected) {
+  const dot = document.getElementById('statusDot');
+  if (active) {
+    dot.className = 'status-dot connected';
+    st.textContent = status === 'receiving' ? 'Receiving (advertising)' : 'Scanning…';
+    st.className = 'status-text connected';
+  } else {
+    dot.className = 'status-dot';
+    st.textContent = 'Disconnected';
+    st.className = 'status-text';
     predictionWindow.length = 0;
     voltageHistory.length = 0;
-    voltagePredictionIndices.length = 0;
+    voltagePredictionIndices = [];
     lastLoggedLabel = -1;
     document.getElementById('voltageCurrent').textContent = '--';
     renderPredictionWindow();
   }
+  document.getElementById('btnConnect').disabled = active;
+  document.getElementById('btnDisconnect').disabled = !active;
 }
 </script>
 

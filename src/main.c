@@ -11,9 +11,30 @@
 #define USE_SOLAR_GATEKEEPER 1
 #define USE_ADC 1
 
+#if USE_SOLAR_GATEKEEPER
+/* Run-policy timer period (ms). Longer = fewer wake-ups, lower power; 1000 = 1 s. */
+#define SOLAR_RUN_POLICY_MS 1000
+#endif
+
 /* Cycle-to-ns conversion: use Kconfig value; fallback for nRF52 @ 64 MHz */
 #ifndef CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC
 #define CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC 64000000
+#endif
+
+/* Energy profiling: set to 1 to measure time/energy per region and print to RTT.
+ * Build with CONFIG_LOG=y (e.g. use prj_energy_profile.conf overlay) to see output. */
+#define ENERGY_PROFILE 0
+
+#if ENERGY_PROFILE
+#define ENERGY_PROFILE_INTERVAL 20
+#define CYCLES_TO_US(cyc) ((uint32_t)((uint64_t)(cyc) * 1000000ULL / CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC))
+#define ENERGY_UJ(v_mv, i_ma, us) ((uint32_t)((uint64_t)(v_mv) * (i_ma) * (us) / 1000U))
+#define I_INFERENCE_MA 5
+#define I_BLE_MA 10
+#define I_SPI_BMA_MA 4
+#define I_ADC_MA 2
+#define I_DATA_PREP_MA 5
+#define VOLTAGE_DEFAULT_MV 3300
 #endif
 
 // Basic Libs
@@ -35,131 +56,99 @@
 #include <zephyr/drivers/adc.h>
 #endif
 
-//BLE STUFF
 #include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/gap.h>
-
+#include <zephyr/bluetooth/addr.h>
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
-//						All BLE/Android functionality					//
+//				Advertising-only BLE (no connection / GATT)				//
 //																		//
 //////////////////////////////////////////////////////////////////////////
 
-// BLE STUFF
-#define DEVICE_NAME       CONFIG_BT_DEVICE_NAME	// Name of Device
-#define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)	// Length of device
-#define BT_UUID_ACCEL_SERVICE_VAL \
-	BT_UUID_128_ENCODE(0x12345678,0x1234,0x5678,0x1234,0x1234567890ab)	// ID of device
+#define COMPANY_ID_CODE 0x0059
 
-#define BT_UUID_ACCEL_CHAR_VAL \
-	BT_UUID_128_ENCODE(0x12345679,0x1234,0x5678,0x1234,0x1234567890ab)	// how many chars of ID
-static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
-static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
-static struct bt_conn *current_conn;	// current connection ptr
-/* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) + voltage_mv(2) = 19 */
-#define ACCEL_PAYLOAD_SIZE 19
-static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
-#define VOLTAGE_NO_DATA 0xFFFFU
-#define LATENCY_SENTINEL 0xFFFFFFFFU
-// Func for Notifying External Device
-static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
-}
-// Initialization Constructor
-BT_GATT_SERVICE_DEFINE(accel_svc,
-	BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
-	BT_GATT_CHARACTERISTIC(&accel_char_uuid.uuid,
-			       BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_NONE,
-			       NULL, NULL, accel_value),
-	BT_GATT_CCC(accel_ccc_cfg_changed,
-		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)
-);
+typedef struct adv_mfg_data {
+	uint16_t company_code;
+	uint8_t pred;
+} adv_mfg_data_type;
 
-// Forward declaration
-static void request_fast_ble_interval(void);
-
-// BLE HELPER FUNCTIONS
-static void connected(struct bt_conn *conn, uint8_t err)
-{
-	if (err) {
-		return;
-	}
-	current_conn = bt_conn_ref(conn);
-	/* Kick a fast connection interval so BLE notifications arrive in real-time */
-	request_fast_ble_interval();
-}
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	if (current_conn) {
-		bt_conn_unref(current_conn);
-		current_conn = NULL;
-	}
-}
-BT_CONN_CB_DEFINE(conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
+static adv_mfg_data_type adv_mfg_data = {
+	.company_code = COMPANY_ID_CODE,
+	.pred = 0x0
 };
+
+static const struct bt_le_adv_param *adv_param =
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
+			32, 33, NULL);
+
+#define ADV_DEVICE_NAME "AccelDev"
 
 static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+	BT_DATA(BT_DATA_MANUFACTURER_DATA, (unsigned char *)&adv_mfg_data,
+		sizeof(adv_mfg_data)),
 };
 
-// called from main to see if BT is ready
-static void bt_ready(int err)
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, ADV_DEVICE_NAME, sizeof(ADV_DEVICE_NAME) - 1),
+};
+
+#define VOLTAGE_NO_DATA 0xFFFFU
+
+static uint16_t cached_voltage_mv = VOLTAGE_NO_DATA;
+
+LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
+
+#if ENERGY_PROFILE
+static uint64_t total_us_inference;
+static uint64_t total_us_ble;
+static uint64_t total_us_spi_bma;
+static uint64_t total_us_adc;
+static uint64_t total_us_data_prep;
+static uint32_t calls_inference;
+static uint32_t calls_ble;
+static uint32_t calls_spi_bma;
+static uint32_t calls_adc;
+static uint32_t calls_data_prep;
+#endif
+
+#if ENERGY_PROFILE
+static void energy_profile_print_and_reset(uint16_t voltage_mv)
 {
-	if (err) {
-		return;
+	uint32_t v = (voltage_mv == VOLTAGE_NO_DATA) ? VOLTAGE_DEFAULT_MV : voltage_mv;
+	if (calls_inference > 0) {
+		uint32_t avg_us = (uint32_t)(total_us_inference / calls_inference);
+		uint32_t uj = ENERGY_UJ(v, I_INFERENCE_MA, total_us_inference);
+		LOG_INF("ENERGY_PROFILE: inference total_us=%u calls=%u avg_us=%u total_uj=%u",
+			(unsigned)total_us_inference, calls_inference, avg_us, uj);
 	}
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad),
-			      NULL, 0);
+	if (calls_ble > 0) {
+		uint32_t avg_us = (uint32_t)(total_us_ble / calls_ble);
+		uint32_t uj = ENERGY_UJ(v, I_BLE_MA, total_us_ble);
+		LOG_INF("ENERGY_PROFILE: ble_notify total_us=%u calls=%u avg_us=%u total_uj=%u",
+			(unsigned)total_us_ble, calls_ble, avg_us, uj);
+	}
+	if (calls_spi_bma > 0) {
+		uint32_t avg_us = (uint32_t)(total_us_spi_bma / calls_spi_bma);
+		uint32_t uj = ENERGY_UJ(v, I_SPI_BMA_MA, total_us_spi_bma);
+		LOG_INF("ENERGY_PROFILE: spi_bma total_us=%u calls=%u avg_us=%u total_uj=%u",
+			(unsigned)total_us_spi_bma, calls_spi_bma, avg_us, uj);
+	}
+	if (calls_adc > 0) {
+		uint32_t avg_us = (uint32_t)(total_us_adc / calls_adc);
+		uint32_t uj = ENERGY_UJ(v, I_ADC_MA, total_us_adc);
+		LOG_INF("ENERGY_PROFILE: adc total_us=%u calls=%u avg_us=%u total_uj=%u",
+			(unsigned)total_us_adc, calls_adc, avg_us, uj);
+	}
+	if (calls_data_prep > 0) {
+		uint32_t avg_us = (uint32_t)(total_us_data_prep / calls_data_prep);
+		uint32_t uj = ENERGY_UJ(v, I_DATA_PREP_MA, total_us_data_prep);
+		LOG_INF("ENERGY_PROFILE: data_prep total_us=%u calls=%u avg_us=%u total_uj=%u",
+			(unsigned)total_us_data_prep, calls_data_prep, avg_us, uj);
+	}
+	total_us_inference = total_us_ble = total_us_spi_bma = total_us_adc = total_us_data_prep = 0;
+	calls_inference = calls_ble = calls_spi_bma = calls_adc = calls_data_prep = 0;
 }
-
-static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z,
-					       uint32_t inference_us, uint16_t arena_bytes,
-					       uint32_t model_bytes, uint16_t voltage_mv){
-	if (!current_conn) return;
-	accel_value[0] = label;
-	accel_value[1] = x & 0xFF;
-	accel_value[2] = (x >> 8) & 0xFF;
-	accel_value[3] = y & 0xFF;
-	accel_value[4] = (y >> 8) & 0xFF;
-	accel_value[5] = z & 0xFF;
-	accel_value[6] = (z >> 8) & 0xFF;
-	accel_value[7] = inference_us & 0xFF;
-	accel_value[8] = (inference_us >> 8) & 0xFF;
-	accel_value[9] = (inference_us >> 16) & 0xFF;
-	accel_value[10] = (inference_us >> 24) & 0xFF;
-	accel_value[11] = arena_bytes & 0xFF;
-	accel_value[12] = (arena_bytes >> 8) & 0xFF;
-	accel_value[13] = model_bytes & 0xFF;
-	accel_value[14] = (model_bytes >> 8) & 0xFF;
-	accel_value[15] = (model_bytes >> 16) & 0xFF;
-	accel_value[16] = (model_bytes >> 24) & 0xFF;
-	accel_value[17] = voltage_mv & 0xFF;
-	accel_value[18] = (voltage_mv >> 8) & 0xFF;
-	bt_gatt_notify(current_conn, &accel_svc.attrs[1],
-		       accel_value, sizeof(accel_value));
-}
-
-/* Request a balanced BLE connection interval: responsive enough for
- * near-real-time data while keeping the radio duty cycle low. */
-static void request_fast_ble_interval(void)
-{
-	if (!current_conn) return;
-	/* min 30ms, max 50ms, latency 0, timeout 4s */
-	static const struct bt_le_conn_param fast_params =
-		BT_LE_CONN_PARAM_INIT(24, 40, 0, 400);
-	bt_conn_le_param_update(current_conn, &fast_params);
-}
-
-/* Cached ML result so accel-only updates still carry the latest label */
-static uint8_t cached_label = 0xFF;
-
-LOG_MODULE_REGISTER(app, LOG_LEVEL_WRN);
+#endif
 
 
 
@@ -186,7 +175,7 @@ static struct gpio_callback int_cb_data;
 // BMA400
 #define FIFO_SAMPLES 25
 #define FIFO_BATCH  5
-#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_BATCH*7)
+#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_BATCH*4)
 #define FIFO_FULL_SIZE          UINT16_C(1024)
 #define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
 
@@ -223,7 +212,8 @@ volatile bool last_tx_done = true;
 static int16_t adc_buf;
 static struct adc_sequence adc_seq;
 static const struct adc_dt_spec adc_ch = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
-#define VOLTAGE_THRESHOLD_MV 1600
+/* Only run sensing when V above this (mV). Raise for more margin under solar (e.g. 1800). */
+#define VOLTAGE_THRESHOLD_MV 800
 
 static uint16_t get_voltage_mv(void)
 {
@@ -246,15 +236,8 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 	k_sem_give(&bma400_ready);
 }
 
-// for reading every 25 samples from a buffer
 void thread_read_bma400(void)
 {
-	/* Ring buffer accumulates FIFO_BATCH-sized chunks into a full
-	 * FIFO_SAMPLES (25) window for ML inference.  BLE accel data
-	 * is sent on every batch for near-real-time display (~5Hz). */
-	struct bma400_fifo_sensor_data ml_window[FIFO_SAMPLES];
-	int ml_idx = 0;   /* how many samples in ml_window so far */
-
 	while (1) {
 
 		k_sem_take(&bma400_ready, K_FOREVER);
@@ -264,87 +247,105 @@ void thread_read_bma400(void)
 		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_RESUME);
 #endif
 
-		/* ── 1. Read whatever is in the FIFO ── */
+#if ENERGY_PROFILE
+		uint32_t t0 = k_cycle_get_32();
+#endif
 		bma400_get_fifo_data(&fifo_frame, &bma_sensor);
-		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
-		bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
+		uint16_t accel_frames_req = FIFO_SAMPLES;
+		bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
+#if ENERGY_PROFILE
+		total_us_spi_bma += CYCLES_TO_US(k_cycle_get_32() - t0);
+		calls_spi_bma++;
+		t0 = k_cycle_get_32();
+#endif
+		uint16_t batch_voltage = cached_voltage_mv;
+#if !USE_SOLAR_GATEKEEPER
+		batch_voltage = get_voltage_mv();
+		cached_voltage_mv = batch_voltage;
+#endif
+#if ENERGY_PROFILE
+		total_us_adc += CYCLES_TO_US(k_cycle_get_32() - t0);
+		calls_adc++;
+#endif
 
-		uint16_t batch_voltage = get_voltage_mv();
+		int_en.type = BMA400_FIFO_WM_INT_EN;
+		int_en.conf = BMA400_DISABLE;
+		(void)bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+		bma400_set_power_mode(BMA400_MODE_SLEEP, &bma_sensor);
 
-		/* ── 2. Send each new sample via BLE immediately ── */
-		for (int i = 0; i < got; i++) {
-			send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
-							accel_data[i].z, LATENCY_SENTINEL,
-							(uint16_t)ei_model_arena_size,
-							ei_model_tflite_len,
-							batch_voltage);
+#if USE_SOLAR_GATEKEEPER
+		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
+#endif
 
-			if (ml_idx < FIFO_SAMPLES) {
-				demo_data[ml_idx] = accel_data[i].x;
-				demo_data[ml_idx + 50] = accel_data[i].y;
-				demo_data[ml_idx + 25] = accel_data[i].z;
-				ml_idx++;
+#if ENERGY_PROFILE
+		uint32_t t_dp = k_cycle_get_32();
+#endif
+		if (accel_frames_req >= FIFO_SAMPLES) {
+			for (int i = 0; i < FIFO_SAMPLES; i++) {
+				demo_data[i]      = (float)accel_data[i].x;
+				demo_data[i + 25] = (float)accel_data[i].y;
+				demo_data[i + 50] = (float)accel_data[i].z;
+			}
+		}
+#if ENERGY_PROFILE
+		total_us_data_prep += CYCLES_TO_US(k_cycle_get_32() - t_dp);
+		calls_data_prep++;
+#endif
+
+		if (accel_frames_req >= FIFO_SAMPLES) {
+			const char *predictedLabel = NULL;
+			float predictedScore = 0.0f;
+
+			uint32_t start_cyc = k_cycle_get_32();
+			int inferenceResult = ei_v3_classify_test(&predictedLabel, &predictedScore);
+			uint32_t end_cyc = k_cycle_get_32();
+			uint32_t delta_cyc = end_cyc - start_cyc;
+			uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
+				CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
+			(void)latency_us;
+
+#if ENERGY_PROFILE
+			total_us_inference += latency_us;
+			calls_inference++;
+			if (calls_inference >= ENERGY_PROFILE_INTERVAL) {
+				energy_profile_print_and_reset(batch_voltage);
+			}
+#endif
+
+			if (inferenceResult == 0 && predictedLabel != NULL) {
+				uint8_t result_to_send = 0xFF;
+				if      (strcmp(predictedLabel, "downstairs") == 0) result_to_send = 0;
+				else if (strcmp(predictedLabel, "jump") == 0)       result_to_send = 1;
+				else if (strcmp(predictedLabel, "running") == 0)    result_to_send = 2;
+				else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
+				else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
+				else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
+				else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
+
+				adv_mfg_data.pred = result_to_send;
+			}
+
+#if ENERGY_PROFILE
+			uint32_t t_ble = k_cycle_get_32();
+#endif
+			int adv_err = bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad),
+						      sd, ARRAY_SIZE(sd));
+			if (adv_err) {
+				LOG_ERR("adv_start err %d", adv_err);
 			} else {
-				memmove(&demo_data[0], &demo_data[1], 24 * sizeof(float));
-				demo_data[24] = (float)accel_data[i].x;
-
-				memmove(&demo_data[25], &demo_data[26], 24 * sizeof(float));
-				demo_data[49] = (float)accel_data[i].y;
-
-				memmove(&demo_data[50], &demo_data[51], 24 * sizeof(float));
-				demo_data[74] = (float)accel_data[i].z;
-
-				memmove(&ml_window[0], &ml_window[1], 24 * sizeof(struct bma400_fifo_sensor_data));
-				ml_window[24] = accel_data[i];
+				k_sleep(K_MSEC(200));
+				bt_le_adv_stop();
 			}
-
-			/* ── 3. Run ML inference once we have a full 25-sample window ── */
-			if (ml_idx >= FIFO_SAMPLES) {
-				const char *predictedLabel = NULL;
-				float predictedScore = 0.0f;
-
-				uint32_t start_cyc = k_cycle_get_32();
-				int inferenceResult = ei_v3_classify_test(&predictedLabel, &predictedScore);
-				uint32_t end_cyc = k_cycle_get_32();
-				uint32_t delta_cyc = end_cyc - start_cyc;
-				uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
-					CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
-
-				if (inferenceResult == 0 && predictedLabel != NULL) {
-					uint8_t result_to_send = 0xFF;
-					if      (strcmp(predictedLabel, "downstairs") == 0) result_to_send = 0;
-					else if (strcmp(predictedLabel, "jump") == 0)       result_to_send = 1;
-					else if (strcmp(predictedLabel, "running") == 0)    result_to_send = 2;
-					else if (strcmp(predictedLabel, "sitting") == 0)    result_to_send = 3;
-					else if (strcmp(predictedLabel, "standing") == 0)   result_to_send = 4;
-					else if (strcmp(predictedLabel, "upstairs") == 0)   result_to_send = 5;
-					/* Send one notification with the fresh ML label */
-					else if (strcmp(predictedLabel, "walking") == 0)    result_to_send = 6;
-
-					cached_label = result_to_send;
-
-					int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
-					int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
-					int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
-					send_prediction_accel_notification(result_to_send, lx, ly, lz,
-								latency_us,
-								(uint16_t)ei_model_arena_size,
-								ei_model_tflite_len,
-								batch_voltage);
-				}
-			}
+			LOG_INF("ADV pred=%u frames=%u", adv_mfg_data.pred, accel_frames_req);
+#if ENERGY_PROFILE
+			total_us_ble += CYCLES_TO_US(k_cycle_get_32() - t_ble);
+			calls_ble++;
+#endif
 		}
 
 #if USE_SOLAR_GATEKEEPER
-		/* ── 4a. Solar: power down BMA400 + SPI, gate re-arm via run_policy ── */
-		int_en.type = BMA400_FIFO_WM_INT_EN;
-		int_en.conf = BMA400_DISABLE;
-		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-		bma400_set_power_mode(BMA400_MODE_LOW_POWER, &bma_sensor);
-		pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
 		last_tx_done = true;
 #else
-		/* ── 4b. Battery: re-arm sensor immediately ── */
 		bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
 		int_en.conf = BMA400_ENABLE;
 		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
@@ -369,18 +370,17 @@ void thread_run_policy(void)
 		k_sem_take(&run_policy, K_FOREVER);
 #if USE_ADC
 		{
-			int val_mv;
-			int err = adc_read(adc_ch.dev, &adc_seq);
-			if (err < 0) {
-				LOG_ERR("ADC read failed (%d)", err);
+			uint16_t val_mv;
+			if (!last_tx_done)
+				continue;
+			val_mv = get_voltage_mv();
+			if (val_mv == VOLTAGE_NO_DATA) {
+				LOG_ERR("ADC read failed");
 				continue;
 			}
-			val_mv = (int)adc_buf;
-			err = adc_raw_to_millivolts_dt(&adc_ch, &val_mv);
-			if (err < 0) continue;
-			if (!last_tx_done)
-    			continue;
-			if (val_mv < VOLTAGE_THRESHOLD_MV && !current_conn)
+			cached_voltage_mv = val_mv;
+			LOG_INF("1. Read ADC: %d mv, scaled: %d mv", val_mv, val_mv*15/10);
+			if (val_mv < VOLTAGE_THRESHOLD_MV)
 				continue;
 		}
 #else
@@ -460,12 +460,13 @@ void init_fifo_watermark()
 
 	rslt = bma400_get_device_conf(&fifo_conf, 1, &bma_sensor);
 
-	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_X_EN 
-										| BMA400_FIFO_Y_EN 
-										| BMA400_FIFO_Z_EN	
-										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change (12-bit mode for full resolution)
+	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_8_BIT_EN
+										| BMA400_FIFO_X_EN
+										| BMA400_FIFO_Y_EN
+										| BMA400_FIFO_Z_EN
+										| BMA400_FIFO_AUTO_FLUSH;
 	fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
-	fifo_conf.param.fifo_conf.fifo_watermark = 1;
+	fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;
 	fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
 
 	rslt = bma400_set_device_conf(&fifo_conf, 1, &bma_sensor);
@@ -476,7 +477,7 @@ void init_fifo_watermark()
 	int_en.type = BMA400_FIFO_WM_INT_EN;
 #if USE_SOLAR_GATEKEEPER
 	int_en.conf = BMA400_DISABLE;
-	bma400_set_power_mode(BMA400_MODE_LOW_POWER, &bma_sensor);
+	bma400_set_power_mode(BMA400_MODE_SLEEP, &bma_sensor);
 	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 #else
 	int_en.conf = BMA400_ENABLE;
@@ -488,7 +489,11 @@ void init_fifo_watermark()
 int main(void)
 {
 	int err;
-	
+
+	// #region agent log
+	LOG_INF("App started, RTT ok");
+	// #endregion
+
 	err = spi_is_ready_dt(&spispec);
 	if (!err) {
 		LOG_ERR("Error: SPI device is not ready, err: %d", err);
@@ -522,9 +527,13 @@ int main(void)
 		LOG_ERR("ADC sequence init failed (%d)", err);
 		return -1;
 	}
+	cached_voltage_mv = get_voltage_mv();
 #endif
 
-	err = bt_enable(bt_ready);
+	bt_addr_le_t addr;
+	err = bt_addr_le_from_str("FF:EE:DD:CC:BB:AD", "random", &addr);
+	err = bt_id_create(&addr, NULL);
+	err = bt_enable(NULL);
 	if(err){
 		return -1;
 	}
@@ -540,7 +549,7 @@ int main(void)
 #if USE_SOLAR_GATEKEEPER
 	const struct device *spi_dev = DEVICE_DT_GET(DT_NODELABEL(spi1));
 	pm_device_action_run(spi_dev, PM_DEVICE_ACTION_SUSPEND);
-	k_timer_start(&timer_run_policy, K_MSEC(500), K_MSEC(500));
+	k_timer_start(&timer_run_policy, K_MSEC(SOLAR_RUN_POLICY_MS), K_MSEC(SOLAR_RUN_POLICY_MS));
 #else
 	/* If the interrupt pin is already high after init, kick the semaphore manually
 	 * This handles the case where BMA400 has stale FIFO data from a previous session
