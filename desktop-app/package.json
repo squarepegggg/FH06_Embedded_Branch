@@ -1,0 +1,16 @@
+{
+  "name": "acceldevice-desktop",
+  "version": "1.0.0",
+  "description": "Desktop app for BLE advertising-only ML predictions (nRF52832 + BMA400)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": ["ble", "nrf", "edge-impulse", "advertising"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-15",
+    "electron": "^28.0.0"
+  }
+}

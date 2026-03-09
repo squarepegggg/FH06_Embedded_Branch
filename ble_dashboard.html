@@ -785,7 +785,7 @@ function setScanning(active, status = '') {
   const dot = document.getElementById('statusDot');
   if (active) {
     dot.className = 'status-dot connected';
-    st.textContent = status === 'receiving' ? 'Receiving (advertising)' : 'Scanning…';
+    st.textContent = (status === 'receiving') ? 'Receiving (advertising)' : (status || 'Scanning…');
     st.className = 'status-text connected';
   } else {
     dot.className = 'status-dot';
@@ -800,6 +800,28 @@ function setScanning(active, status = '') {
   }
   document.getElementById('btnConnect').disabled = active;
   document.getElementById('btnDisconnect').disabled = !active;
+}
+
+// ── Electron desktop app: use native BLE (noble) instead of Web Bluetooth ──
+if (typeof window.electron !== 'undefined') {
+  window.electron.setOnPrediction((payload) => {
+    const pred = typeof payload === 'object' ? payload.pred : payload;
+    if (pred < 0 || pred > 6) return;
+    const logEvent = pred !== lastLoggedLabel;
+    lastLoggedLabel = pred;
+    onPrediction(pred, { logEvent });
+    if (typeof payload === 'object') {
+      if (payload.x !== undefined && payload.y !== undefined && payload.z !== undefined) {
+        onAccelerometer(payload.x, payload.y, payload.z);
+      }
+      if (payload.voltageMv !== undefined && payload.voltageMv !== 0xFFFF) {
+        onVoltage(payload.voltageMv, true);
+      }
+    }
+  });
+  setScanning(true, 'Scanning (desktop app)');
+  document.getElementById('btnConnect').style.display = 'none';
+  document.getElementById('btnDisconnect').style.display = 'none';
 }
 </script>
 
