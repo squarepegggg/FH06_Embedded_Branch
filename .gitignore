@@ -3,6 +3,7 @@
 # ──────────────────────────────────────────────
 /build/
 /build_default/
+node_modules/
 
 # ──────────────────────────────────────────────
 #  Edge Impulse SDK (large, auto-generated)
