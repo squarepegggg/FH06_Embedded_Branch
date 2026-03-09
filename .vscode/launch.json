@@ -1,0 +1,19 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "nrf-connect",
+			"request": "launch",
+			"name": "Launch bma400_sample/build/bma400_sample",
+			"config": "${workspaceFolder}/build/bma400_sample",
+			"runToEntryPoint": "main"
+		},
+		{
+			"type": "nrf-connect",
+			"request": "launch",
+			"name": "Launch bma400_sample/build",
+			"config": "${workspaceFolder}/build",
+			"runToEntryPoint": "main"
+		}
+	]
+}

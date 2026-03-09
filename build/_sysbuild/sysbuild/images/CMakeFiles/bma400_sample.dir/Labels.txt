@@ -1,0 +1,13 @@
+# Target labels
+ bma400_sample
+# Source files and their labels
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample-complete.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-build.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-configure.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-download.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-install.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-mkdir.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-patch.rule
+/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-update.rule

@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/CMakeFiles/bma400_sample-complete.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-build.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-configure.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-download.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-install.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-mkdir.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-patch.rule"
+		},
+		{
+			"file" : "/home/nrg-gluon/Desktop/SeniorDesign/bma400_sample/build/_sysbuild/sysbuild/images/bma400_sample-prefix/src/bma400_sample-stamp/bma400_sample-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"bma400_sample"
+		],
+		"name" : "bma400_sample"
+	}
+}
