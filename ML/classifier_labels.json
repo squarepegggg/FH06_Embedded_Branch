@@ -1,0 +1,11 @@
+{
+  "labels": [
+    "idle",
+    "jump",
+    "sixseven",
+    "spinning",
+    "walking",
+    "waving"
+  ],
+  "num_classes": 6
+}

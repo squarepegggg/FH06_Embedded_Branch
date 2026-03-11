@@ -8,54 +8,37 @@ from pathlib import Path
 
 print("TensorFlow:", tf.__version__)
 
-# Load CSV files and extract labels
-def load_csv_data(csv_dir="."):
-    """Load all CSV files and extract labels from filenames."""
+# Fixed set of classes (Matthew: all 6, Ronak: 5, Nikhil & Andres: 2 each)
+CLASSES = ["idle", "jump", "sixseven", "spinning", "walking", "waving"]
+NUM_CLASSES = len(CLASSES)
+
+# Optional: map legacy/alternate labels into our class set (e.g. standing -> idle)
+LABEL_ALIASES = {"standing": "idle"}
+
+# Load CSV files and extract labels from filenames (only files matching CLASSES)
+def load_csv_data(csv_dir=None):
+    """Load CSV files from csv_dir; only include files whose activity is in CLASSES."""
+    if csv_dir is None:
+        csv_dir = os.path.join(os.path.dirname(__file__), "Data")
     csv_files = glob.glob(os.path.join(csv_dir, "*.csv"))
     all_data = []
-    all_labels = []  # One label per file
-    
-    for csv_file in csv_files:
-        # Extract a clean activity label from the filename.
-        # Examples:
-        #   "Andres_sitting.csv"          -> "sitting"
-        #   "NK walking 1min.csv"        -> "walking"
-        #   "NK Upstairs 1min.csv"       -> "upstairs"
-        filename = Path(csv_file).stem  # e.g. "Andres_sitting", "NK walking 1min"
+    all_labels = []
 
-        if "_" in filename:
-            # Original scheme: use everything after the first underscore.
-            label = filename.split("_", 1)[1]
-        else:
-            # For filenames without underscores (e.g. "NK walking 1min"),
-            # infer the activity from keywords so different people share the same label set.
-            lower_name = filename.lower()
-            if "running" in lower_name:
-                label = "running"
-            elif "walking" in lower_name:
-                label = "walking"
-            elif "stand" in lower_name:
-                label = "standing"
-            elif "sit" in lower_name:
-                label = "sitting"
-            elif "upstairs" in lower_name:
-                label = "upstairs"
-            elif "downstairs" in lower_name:
-                label = "downstairs"
-            elif "jump" in lower_name:
-                label = "jump"
-            else:
-                # Fallback: use the whole filename if we cannot infer a known activity.
-                label = filename
-        
-        # Load CSV data
+    for csv_file in csv_files:
+        filename = Path(csv_file).stem  # e.g. "Matthew_jump", "Ronak_idle"
+        if "_" not in filename:
+            continue
+        label = filename.split("_", 1)[1].strip().lower()
+        # Map aliases (e.g. standing -> idle) so we can use Nikhil_standing etc.
+        label = LABEL_ALIASES.get(label, label)
+        if label not in CLASSES:
+            continue
+
         df = pd.read_csv(csv_file)
-        # Extract X, Y, Z columns (skip Timestamp)
         data = df[["X", "Y", "Z"]].values.astype(np.float32)
-        
         all_data.append(data)
-        all_labels.append(label)  # One label per file
-    
+        all_labels.append(label)
+
     return all_data, all_labels
 
 # Create windows of size 25 from the time series data
@@ -79,29 +62,25 @@ def create_windows(data_list, labels_list, window_size=25):
     
     return np.array(X_windows), np.array(y_windows)
 
-# Load data from CSV files
-print("Loading CSV files...")
+# Load data from CSV files (only files matching CLASSES; Data dir next to this script)
 data_list, labels_list = load_csv_data()
 
 # Create windows
-print("Creating windows...")
 X, y_strings = create_windows(data_list, labels_list, window_size=25)
 
-# Map string labels to integers
-unique_labels = sorted(list(set(y_strings)))
-label_to_int = {label: idx for idx, label in enumerate(unique_labels)}
+# Fixed mapping: class index i = CLASSES[i] (same order for inference)
+label_to_int = {label: idx for idx, label in enumerate(CLASSES)}
 int_to_label = {idx: label for label, idx in label_to_int.items()}
-
 y = np.array([label_to_int[label] for label in y_strings], dtype=np.int32)
 
-NUM_CLASSES = len(unique_labels)
-# unique_labels is sorted, so class index i = unique_labels[i]
-print(f"Found {NUM_CLASSES} classes: {unique_labels}")
+# Report which classes actually have samples (some may have none if no one has that data)
+present = sorted(set(y_strings))
+print(f"Classes (fixed): {CLASSES}")
+print(f"Classes with data in this run: {present}")
 print(f"Total samples: {len(X)}")
 print("Class index -> label (use this for inference):")
-for idx, label in enumerate(unique_labels):
+for idx, label in enumerate(CLASSES):
     print(f"  {idx} -> {label}")
-print(f"(Full mapping: {label_to_int})")
 
 def build_1dcnn_classifier(num_classes: int):
     inputs = tf.keras.Input(shape=(3, 25, 1), name="input_3x25x1")
@@ -134,8 +113,11 @@ model.compile(optimizer="adam",
 # Use a validation split to separate training and testing data
 print(f"\nTraining on {len(X)} samples...")
 from sklearn.model_selection import train_test_split
+# Stratify only if every present class has at least 2 samples (for 20% split)
+_, counts = np.unique(y, return_counts=True)
+stratify_arg = y if np.all(counts >= 2) else None
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+    X, y, test_size=0.2, random_state=42, stratify=stratify_arg
 )
 
 model.fit(X_train, y_train, epochs=3, batch_size=32, validation_data=(X_test, y_test))
@@ -177,8 +159,8 @@ print("Saved:", tflite_path)
 # Save class index -> label so you know which output index = which activity
 labels_path = "classifier_labels.json"
 with open(labels_path, "w") as f:
-    json.dump({"labels": unique_labels, "num_classes": NUM_CLASSES}, f, indent=2)
-print("Saved labels:", labels_path, "-> index i means label", unique_labels)
+    json.dump({"labels": CLASSES, "num_classes": NUM_CLASSES}, f, indent=2)
+print("Saved labels:", labels_path, "-> index i means label", CLASSES)
 
 # ---- Inspect ops (helpful if EI still complains) ----
 tf.lite.experimental.Analyzer.analyze(model_content=tflite_model)
