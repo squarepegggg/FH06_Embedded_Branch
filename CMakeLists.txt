@@ -8,11 +8,11 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(bma400_sample)
 
-add_subdirectory(ei-v3)
+add_subdirectory(ei-v4)
 target_sources(app PRIVATE src/main.c)
 target_sources(app PRIVATE src/bma400.c)
 target_sources(app PRIVATE src/run_nn.c)
-target_sources(app PRIVATE src/ei_glue_v3.cpp)
+target_sources(app PRIVATE src/ei_glue_v4.cpp)
 # Add CMSIS-NN include directories
 target_include_directories(app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

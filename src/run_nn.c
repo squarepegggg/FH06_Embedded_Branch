@@ -1,9 +1,9 @@
 /**
  * run_nn.c - Bridge from BMA400 accel data to Edge Impulse classifier.
- * Fills demo_data, calls ei_v3_classify_test, sets biggest_idx.
+ * Fills demo_data, calls ei_v4_classify_test, sets biggest_idx.
  */
 #include "run_nn.h"
-#include "glueV3.h"
+#include "glueV4.h"
 #include <string.h>
 
 int biggest_idx = 0;
@@ -24,20 +24,21 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 
 	const char *label = NULL;
 	float score = 0.0f;
-	int err = ei_v3_classify_test(&label, &score);
+	int err = ei_v4_classify_test(&label, &score);
 
 	if (err != 0 || label == NULL) {
 		biggest_idx = 0;
 		return;
 	}
 
-	/* Map EI labels to index 0-6 */
-	if (strcmp(label, "downstairs") == 0) biggest_idx = 0;
+	/* Map EI labels to index 0-5 for the new 6-class model:
+	 * 0=idle, 1=jump, 2=sixseven, 3=spinning, 4=walking, 5=waving.
+	 */
+	if (strcmp(label, "idle") == 0)       biggest_idx = 0;
 	else if (strcmp(label, "jump") == 0)       biggest_idx = 1;
-	else if (strcmp(label, "running") == 0)    biggest_idx = 2;
-	else if (strcmp(label, "sitting") == 0)    biggest_idx = 3;
-	else if (strcmp(label, "standing") == 0)   biggest_idx = 4;
-	else if (strcmp(label, "upstairs") == 0)   biggest_idx = 5;
-	else if (strcmp(label, "walking") == 0)    biggest_idx = 6;
+	else if (strcmp(label, "sixseven") == 0)   biggest_idx = 2;
+	else if (strcmp(label, "spinning") == 0)   biggest_idx = 3;
+	else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
+	else if (strcmp(label, "waving") == 0)     biggest_idx = 5;
 	else biggest_idx = 0;
 }
