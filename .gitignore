@@ -2,6 +2,7 @@
 #  Zephyr / nRF Connect SDK build artifacts
 # ──────────────────────────────────────────────
 /build_1/
+/build/
 /build_default/
 node_modules/
 
