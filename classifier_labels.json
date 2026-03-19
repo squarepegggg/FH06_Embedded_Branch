@@ -1,12 +1,11 @@
 {
   "labels": [
-    "downstairs",
+    "idle",
     "jump",
-    "running",
-    "sitting",
-    "standing",
-    "upstairs",
-    "walking"
+    "sixseven",
+    "spinning",
+    "walking",
+    "waving"
   ],
-  "num_classes": 7
+  "num_classes": 6
 }

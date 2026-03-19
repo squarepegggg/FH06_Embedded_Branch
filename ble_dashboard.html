@@ -367,19 +367,18 @@ const MANUFACTURER_ID = 0x0059;  // Company ID in adv_mfg_data (main3.c)
 
 // ── Activity definitions ────────────────────────────────────
 const ACTIVITIES = [
-  { id: 0, name: 'downstairs', icon: '🔽', color: '#f97316' },
+  { id: 0, name: 'idle', icon: '🔽', color: '#f97316' },
   { id: 1, name: 'jump',       icon: '🦘', color: '#eab308' },
-  { id: 2, name: 'running',    icon: '🏃', color: '#ef4444' },
-  { id: 3, name: 'sitting',    icon: '🪑', color: '#22c55e' },
-  { id: 4, name: 'standing',   icon: '🧍', color: '#3b82f6' },
-  { id: 5, name: 'upstairs',   icon: '🔼', color: '#a855f7' },
-  { id: 6, name: 'walking',    icon: '🚶', color: '#6366f1' },
+  { id: 2, name: 'sixseven',    icon: '🏃', color: '#ef4444' },
+  { id: 3, name: 'spinning',    icon: '🪑', color: '#22c55e' },
+  { id: 4, name: 'walking',   icon: '🧍', color: '#3b82f6' },
+  { id: 5, name: 'waving',   icon: '🔼', color: '#a855f7' },
 ];
 
 // ── State ───────────────────────────────────────────────────
 let lescan = null;
 let scanning = false;
-const counts = new Array(7).fill(0);
+const counts = new Array(6).fill(0);
 let totalPredictions = 0;
 const accelHistory = { x: [], y: [], z: [] };
 const voltageHistory = [];

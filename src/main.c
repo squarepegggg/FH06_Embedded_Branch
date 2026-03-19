@@ -48,7 +48,7 @@ typedef struct __attribute__((packed)) adv_mfg_data {
  static const struct adc_dt_spec adc_channel = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
  
  static const struct bt_le_adv_param *adv_param =
-	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY,
 			32, 33, NULL);
 /* STEP 2.3 - Define and initialize a variable of type adv_mfg_data_type */
 static adv_mfg_data_type adv_mfg_data = {
@@ -124,18 +124,6 @@ static uint16_t cached_voltage_mv = 0xFFFFU;
  struct bma400_fifo_sensor_data accel_data[FIFO_ACCEL_FRAME_COUNT] = { { 0 } };
  struct bma400_sensor_conf settings;
  
- // // Right Arm
- // float mean = 1.83;
- // float std = 6.09;
- 
- // // Left Arm
- // float mean = 4.48;
- // float std = 4.56;
- 
- // Left Leg
- float mean = 4.67;
- float std = 5.58;
- 
  
  void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
  {
@@ -148,9 +136,10 @@ static uint16_t cached_voltage_mv = 0xFFFFU;
  {
 	 static int count = 0;
 	 while(1){
-		 LOG_INF("In the read thread");
+		 //LOG_INF("In the read thread");
 		 k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
 
+    
 		 // Enable SPI
 		 const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
 		 pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
@@ -185,9 +174,9 @@ static uint16_t cached_voltage_mv = 0xFFFFU;
 		adv_mfg_data.z = accel_data[accel_frames_req > 0 ? accel_frames_req - 1 : 0].z;
 		adv_mfg_data.voltage_mv = cached_voltage_mv;
 
-		bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+		//bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 		bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-		k_sleep(K_MSEC(200));
+		k_sleep(K_MSEC(50));
 		bt_le_adv_stop();
 		last_tx_done = true;
  
@@ -291,7 +280,7 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 	 int_en.type = BMA400_FIFO_WM_INT_EN;
 	 int_en.conf = BMA400_DISABLE;
  
-	 bma400_set_power_mode(BMA400_MODE_LOW_POWER,&bma_sensor);
+	 bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
 	 rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
  }
  
@@ -356,15 +345,15 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 		 // 1. Read the ADC and convert to uJ
 		 // LOG_INF("---------- Time: %d ----------",current_time);
 		 int8_t err = adc_read(adc_channel.dev, &sequence);
-		 if (err < 0) {
-			 LOG_ERR("Could not read (%d)", err);
-		 }
+		//  if (err < 0) {
+		// 	 LOG_ERR("Could not read (%d)", err);
+		//  }
 		val_mv = (int)buf;
-		err = adc_raw_to_millivolts_dt(&adc_channel, &val_mv);
+		adc_raw_to_millivolts_dt(&adc_channel, &val_mv);
 		// val_mv = val_mv*4; // scale by voltage divider ratio
-		LOG_INF("1. Read ADC: %d mv, scaled: %d mv", val_mv, val_mv*15/10);
+		//LOG_INF("1. Read ADC: %d mv, scaled: %d mv", val_mv, val_mv*15/10);
 		cached_voltage_mv = (uint16_t)val_mv;
-		if(val_mv > 1200 && last_tx_done == true)
+		if(val_mv > 1625 && last_tx_done == true)
 		 // if(last_tx_done == true) // battery powered test, just do it every second
 		 {
 			 int_en.type = BMA400_FIFO_WM_INT_EN;
@@ -372,8 +361,7 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 			 bma400_set_power_mode(BMA400_MODE_NORMAL,&bma_sensor);
 			 bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 			 last_tx_done = false;
-		 }
-		 
+		 } 
 	 }
  }
  K_THREAD_DEFINE(thread_run_policy_id, STACKSIZE, thread_run_policy, NULL, NULL, NULL, THREAD_RUN_POLICY_PRIORITY, 0, 0);
@@ -389,7 +377,7 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 	 // Fix the BLE address
 	 bt_addr_le_t addr;
 	 err = bt_addr_le_from_str("FF:EE:DD:CC:BB:AD", "random", &addr);
-	 err = bt_id_create(&addr, NULL);
+
  
 	 // Enable BLE
 	 err = bt_enable(NULL);
@@ -397,7 +385,11 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 		 LOG_ERR("Bluetooth init failed (err %d)\n", err);
 		 return -1;
 	 }
-	 
+	err = bt_id_create(&addr, NULL);
+
+	 if (!device_is_ready(int_pin.port)) {
+		 return -1;
+	 }
 	 /* STEP 10.1 - Check if SPI and GPIO devices are ready */
 	 err = spi_is_ready_dt(&spispec);
 	 if (!err) {
@@ -405,9 +397,6 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 		 return 0;
 	 }
  
-	 if (!device_is_ready(int_pin.port)) {
-		 return -1;
-	 }
  
 	 err = gpio_pin_configure_dt(&int_pin, GPIO_INPUT);
 	 if (err < 0) {
@@ -459,7 +448,7 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 	 // const struct device *cons1 = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 	 // pm_device_action_run(cons1, PM_DEVICE_ACTION_SUSPEND);
 	 
-	 k_timer_start(&timer0, K_MSEC(200), K_MSEC(200));
+	 k_timer_start(&timer0, K_MSEC(1000), K_MSEC(1000));
  
 	 while(1){
 		 k_sleep(K_FOREVER);

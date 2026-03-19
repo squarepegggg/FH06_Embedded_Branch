@@ -1,0 +1,7 @@
+default: FH06_Embedded_Branch
+build_dir: /Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1
+domains:
+  - name: FH06_Embedded_Branch
+    build_dir: /Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/FH06_Embedded_Branch
+flash_order:
+  - FH06_Embedded_Branch
