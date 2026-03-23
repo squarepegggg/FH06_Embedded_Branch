@@ -1,7 +1,7 @@
 
-# Edge Impulse library for andreswearden-project-1
+# Edge Impulse library for ronakjain0919-project-1
 
-This is a C++ library that lets you run the impulse for "andreswearden-project-1" (https://studio.edgeimpulse.com/studio/879102) on any device. It consists of the Edge Impulse inferencing SDK - with implementations of both processing and learning blocks - and your model. You will need to include this library in your project to run your impulse locally.
+This is a C++ library that lets you run the impulse for "ronakjain0919-project-1" (https://studio.edgeimpulse.com/studio/801862) on any device. It consists of the Edge Impulse inferencing SDK - with implementations of both processing and learning blocks - and your model. You will need to include this library in your project to run your impulse locally.
 
 ## Getting Started
 

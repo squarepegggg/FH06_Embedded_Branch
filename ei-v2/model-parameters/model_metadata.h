@@ -84,10 +84,10 @@
 #define EI_CLASSIFIER_DATATYPE_UINT8             3
 #define EI_CLASSIFIER_DATATYPE_INT8              9
 
-#define EI_CLASSIFIER_PROJECT_ID                 879102
-#define EI_CLASSIFIER_PROJECT_OWNER              "andreswearden"
-#define EI_CLASSIFIER_PROJECT_NAME               "andreswearden-project-1"
-#define EI_CLASSIFIER_PROJECT_DEPLOY_VERSION     7
+#define EI_CLASSIFIER_PROJECT_ID                 801862
+#define EI_CLASSIFIER_PROJECT_OWNER              "ronakjain0919"
+#define EI_CLASSIFIER_PROJECT_NAME               "ronakjain0919-project-1"
+#define EI_CLASSIFIER_PROJECT_DEPLOY_VERSION     3
 #define EI_CLASSIFIER_NN_INPUT_FRAME_SIZE        75
 #define EI_CLASSIFIER_RAW_SAMPLE_COUNT           75
 #define EI_CLASSIFIER_RAW_SAMPLES_PER_FRAME      1
@@ -97,8 +97,8 @@
 #define EI_CLASSIFIER_RESIZE_MODE                EI_CLASSIFIER_RESIZE_NONE
 #define EI_CLASSIFIER_INPUT_FRAMES               0
 #define EI_CLASSIFIER_INTERVAL_MS                1
-#define EI_CLASSIFIER_NN_OUTPUT_COUNT            7
-#define EI_CLASSIFIER_LABEL_COUNT                7
+#define EI_CLASSIFIER_NN_OUTPUT_COUNT            6
+#define EI_CLASSIFIER_LABEL_COUNT                6
 #define EI_CLASSIFIER_SINGLE_FEATURE_INPUT       1
 #define EI_CLASSIFIER_FREQUENCY                  0
 #define EI_CLASSIFIER_SENSOR                     EI_CLASSIFIER_SENSOR_UNKNOWN
@@ -162,8 +162,8 @@
 #define EI_CLASSIFIER_SLICE_SIZE                 (EI_CLASSIFIER_RAW_SAMPLE_COUNT / EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW)
 
 #define EI_STUDIO_VERSION_MAJOR             1
-#define EI_STUDIO_VERSION_MINOR             83
-#define EI_STUDIO_VERSION_PATCH             0
+#define EI_STUDIO_VERSION_MINOR             90
+#define EI_STUDIO_VERSION_PATCH             2
 
 #if ((EI_CLASSIFIER_INFERENCING_ENGINE == EI_CLASSIFIER_TFLITE) ||      (EI_CLASSIFIER_INFERENCING_ENGINE == EI_CLASSIFIER_DRPAI)) &&      EI_CLASSIFIER_USE_FULL_TFLITE == 1
 
@@ -335,7 +335,11 @@ typedef struct {
     uint16_t implementation_version;
     int axes;
     float scale_axes;
+    int powerline_frequency;
+    float highpass_frequency;
+    float lowpass_frequency;
     float motion_sensitivity;
+    float epoch_length;
 } ei_dsp_config_eeg_t;
 
 typedef struct {

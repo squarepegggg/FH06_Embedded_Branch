@@ -10,12 +10,12 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
 #include "model-parameters/model_metadata.h"
-#include "tflite-model/tflite_learn_879102_37.h"
-
+#include "tflite-model/tflite_learn_801862_22.h"
+#include <stdio.h>
 float demo_data[75] = {};
 extern "C" {
     extern const unsigned int ei_model_arena_size  = EI_CLASSIFIER_TFLITE_LARGEST_ARENA_SIZE;
-    extern const unsigned int ei_model_tflite_len  = tflite_learn_879102_37_len;
+    extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_22_len;
 }
 
 extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
@@ -38,6 +38,11 @@ extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
         return static_cast<int>(err);
     }
 
+    for (int i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
+    printf("class %d = %s (%.2f)\n", i, 
+           result.classification[i].label,
+           result.classification[i].value);
+    }   
     // Find the top class
     size_t best_i = 0;
     float  best_v = result.classification[0].value;

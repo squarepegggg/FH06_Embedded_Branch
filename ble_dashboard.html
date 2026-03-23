@@ -368,19 +368,17 @@ const CHAR_UUID     = '12345679-1234-5678-1234-1234567890ab';
 
 // ── Activity definitions ────────────────────────────────────
 const ACTIVITIES = [
-  { id: 0, name: 'downstairs', icon: '🔽', color: '#f97316' },
+  { id: 0, name: 'idle', icon: '🧍', color: '#f97316' },
   { id: 1, name: 'jump',       icon: '🦘', color: '#eab308' },
-  { id: 2, name: 'running',    icon: '🏃', color: '#ef4444' },
-  { id: 3, name: 'sitting',    icon: '🪑', color: '#22c55e' },
-  { id: 4, name: 'standing',   icon: '🧍', color: '#3b82f6' },
-  { id: 5, name: 'upstairs',   icon: '🔼', color: '#a855f7' },
-  { id: 6, name: 'walking',    icon: '🚶', color: '#6366f1' },
+  { id: 2, name: 'sixseven',    icon: '⁶🤷⁷', color: '#ef4444' },
+  { id: 3, name: 'spinning',    icon: '💃', color: '#22c55e' },
+  { id: 4, name: 'walking',   icon: '🧍', color: '#3b82f6' },
 ];
 
 // ── State ───────────────────────────────────────────────────
 let device = null;
 let characteristic = null;
-const counts = new Array(7).fill(0);
+const counts = new Array(5).fill(0);
 let totalPredictions = 0;
 let warnedLegacyPacket = false;
 const accelHistory = { x: [], y: [], z: [] };
@@ -422,7 +420,7 @@ function log(msg, cls = '') {
 // ── Update UI with a new prediction (called for every sliding-window inference) ──
 function onPrediction(index, options = {}) {
   const { logEvent = true } = options;
-  if (index > 6) { log(`Unknown label index: ${index}`, 'err'); return; }
+  if (index > 5) { log(`Unknown label index: ${index}`, 'err'); return; }
 
   const a = ACTIVITIES[index];
   totalPredictions++;
