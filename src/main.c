@@ -213,7 +213,7 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 	 err = spi_transceive_dt(&spispec, &tx_spi_buf_set, &rx_spi_buf_set);
 	 if (err < 0) {
 		 LOG_ERR("spi_transceive_dt() failed, err: %d, 0x%02X", err,tx_buffer);
-		 // return err;
+		 return err;
 	 }
  
 	 for(int i = 0; i < len; i++)
@@ -356,11 +356,16 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 		if(val_mv > 1625 && last_tx_done == true)
 		 // if(last_tx_done == true) // battery powered test, just do it every second
 		 {
+			 const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+			 pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+
 			 int_en.type = BMA400_FIFO_WM_INT_EN;
 			 int_en.conf = BMA400_ENABLE;
 			 bma400_set_power_mode(BMA400_MODE_NORMAL,&bma_sensor);
 			 bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 			 last_tx_done = false;
+
+			 pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
 		 } 
 	 }
  }
