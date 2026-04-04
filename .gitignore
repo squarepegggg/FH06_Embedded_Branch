@@ -15,6 +15,7 @@ ei-v2/edge-impulse-sdk/
 #  IDE / Editor
 # ──────────────────────────────────────────────
 .vscode/
+.cache/
 *.swp
 *.swo
 *~

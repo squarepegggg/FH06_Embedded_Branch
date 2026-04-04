@@ -12,6 +12,7 @@
 #include "bma400.h"
 #include "bma400_defs.h"
 #include "glueV2.h"
+#include <errno.h>
 #include <string.h>
 #include <time.h>
 #include <zephyr/device.h>
@@ -74,25 +75,29 @@ BT_GATT_SERVICE_DEFINE(accel_svc, BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
 // Forward declaration
 static void request_fast_ble_interval(void);
 
-// BLE HELPER FUNCTIONS
-static void connected(struct bt_conn* conn, uint8_t err) {
-    if (err) {
-        printk("Connection failed (err %u)\n", err);
-        return;
-    }
-    printk("Connected\n");
-    current_conn = bt_conn_ref(conn);
-    /* Kick a fast connection interval so BLE notifications arrive in real-time */
-    request_fast_ble_interval();
-}
-static void disconnected(struct bt_conn* conn, uint8_t reason) {
-    printk("Disconnected (reason 0x%02x)\n", reason);
-    if (current_conn) {
-        bt_conn_unref(current_conn);
-        current_conn = NULL;
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
+
+/* Restart advertising after disconnect: in the disconnect callback the stack
+ * often returns -ENOMEM; defer until link teardown can finish. */
+static void restart_adv_work_handler(struct k_work* work);
+K_WORK_DELAYABLE_DEFINE(restart_adv_work, restart_adv_work_handler);
+
+#define RESTART_ADV_DELAY_MS 50
+
+static void restart_adv_work_handler(struct k_work* work) {
+    int err;
+
+    ARG_UNUSED(work);
+
+    err = bt_le_adv_stop();
+    if (err != 0 && err != -EALREADY && err != -ENOENT) {
+        printk("bt_le_adv_stop before restart: err %d\n", err);
     }
 
-    int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
+    err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
     if (err) {
         printk("Re-advertising failed (err %d)\n", err);
     } else {
@@ -100,14 +105,32 @@ static void disconnected(struct bt_conn* conn, uint8_t reason) {
     }
 }
 
+// BLE HELPER FUNCTIONS
+static void connected(struct bt_conn* conn, uint8_t err) {
+    if (err) {
+        printk("Connection failed (err %u)\n", err);
+        return;
+    }
+    (void)k_work_cancel_delayable(&restart_adv_work);
+    printk("Connected\n");
+    current_conn = bt_conn_ref(conn);
+    /* Kick a fast connection interval so BLE notifications arrive in real-time */
+    request_fast_ble_interval();
+}
+static void disconnected(struct bt_conn* conn, uint8_t reason) {
+    printk("Disconnected (reason 0x%02x)\n", reason);
+    if (current_conn == conn) {
+        bt_conn_unref(current_conn);
+        current_conn = NULL;
+    }
+
+    (void)k_work_schedule(&restart_adv_work, K_MSEC(RESTART_ADV_DELAY_MS));
+    printk("Advertising restart scheduled in %d ms\n", RESTART_ADV_DELAY_MS);
+}
+
 BT_CONN_CB_DEFINE(conn_callbacks) = {
     .connected = connected,
     .disconnected = disconnected,
-};
-
-static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
 // called from main to see if BT is ready
