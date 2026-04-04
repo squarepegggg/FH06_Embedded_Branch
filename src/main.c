@@ -4,38 +4,30 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-
-
 // Note for swapping INT1 <-> INT2
 // Change Line 138
 // Change Line 419
 
-
-
 // Basic Libs
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
-#include <zephyr/device.h>
-#include <zephyr/pm/device.h>
-#include <zephyr/devicetree.h>
-#include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/spi.h>
-#include <zephyr/sys/util.h>
 #include "bma400.h"
+#include "bma400_defs.h"
 #include "glueV2.h"
 #include <string.h>
 #include <time.h>
-#include "bma400_defs.h"
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/spi.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/pm/device.h>
+#include <zephyr/sys/util.h>
 
-
-
-
-//BLE STUFF
+// BLE STUFF
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
-
+#include <zephyr/bluetooth/gatt.h>
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
@@ -43,9 +35,7 @@
 //																		//
 //////////////////////////////////////////////////////////////////////////
 
-
-int ei_v2_classify_test(const char **out_label, float *out_score);
-
+int ei_v2_classify_test(const char** out_label, float* out_score);
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
@@ -54,63 +44,65 @@ int ei_v2_classify_test(const char **out_label, float *out_score);
 //////////////////////////////////////////////////////////////////////////
 
 // BLE STUFF
-#define DEVICE_NAME       CONFIG_BT_DEVICE_NAME	// Name of Device
-#define DEVICE_NAME_LEN   (sizeof(DEVICE_NAME) - 1)	// Length of device
-#define BT_UUID_ACCEL_SERVICE_VAL \
-	BT_UUID_128_ENCODE(0x12345678,0x1234,0x5678,0x1234,0x1234567890ab)	// ID of device
+#define DEVICE_NAME CONFIG_BT_DEVICE_NAME         // Name of Device
+#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1) // Length of device
+#define BT_UUID_ACCEL_SERVICE_VAL                                                                  \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x1234567890ab) // ID of device
 
-#define BT_UUID_ACCEL_CHAR_VAL \
-	BT_UUID_128_ENCODE(0x12345679,0x1234,0x5678,0x1234,0x1234567890ab)	// how many chars of ID
-static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL);	// ID
-static struct bt_uuid_128 accel_char_uuid    = BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL);	// Length of DI
-static struct bt_conn *current_conn;	// current connection ptr
+#define BT_UUID_ACCEL_CHAR_VAL                                                                     \
+    BT_UUID_128_ENCODE(0x12345679, 0x1234, 0x5678, 0x1234, 0x1234567890ab) // how many chars of ID
+static struct bt_uuid_128 accel_service_uuid = BT_UUID_INIT_128(BT_UUID_ACCEL_SERVICE_VAL); // ID
+static struct bt_uuid_128 accel_char_uuid =
+    BT_UUID_INIT_128(BT_UUID_ACCEL_CHAR_VAL); // Length of DI
+static struct bt_conn* current_conn;          // current connection ptr
 /* label(1) + x(2) + y(2) + z(2) + infer_us(4) + arena(2) + model_bytes(4) + voltage_mv(2) = 19 */
 #define ACCEL_PAYLOAD_SIZE 19
 static uint8_t accel_value[ACCEL_PAYLOAD_SIZE] = {0};
 #define VOLTAGE_NO_DATA 0xFFFFU
 #define LATENCY_SENTINEL 0xFFFFFFFFU
 // Func for Notifying External Device
-static void accel_ccc_cfg_changed(const struct bt_gatt_attr *attr,uint16_t value){
-	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-	printk("Accel notifications %s\n",notif_enabled ? "enabled" : "disabled");
+static void accel_ccc_cfg_changed(const struct bt_gatt_attr* attr, uint16_t value) {
+    bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
+    printk("Accel notifications %s\n", notif_enabled ? "enabled" : "disabled");
 }
 // Initialization Constructor
-BT_GATT_SERVICE_DEFINE(accel_svc,
-	BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
-	BT_GATT_CHARACTERISTIC(&accel_char_uuid.uuid,
-			       BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_NONE,
-			       NULL, NULL, accel_value),
-	BT_GATT_CCC(accel_ccc_cfg_changed,
-		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)
-);
+BT_GATT_SERVICE_DEFINE(accel_svc, BT_GATT_PRIMARY_SERVICE(&accel_service_uuid),
+                       BT_GATT_CHARACTERISTIC(&accel_char_uuid.uuid, BT_GATT_CHRC_NOTIFY,
+                                              BT_GATT_PERM_NONE, NULL, NULL, accel_value),
+                       BT_GATT_CCC(accel_ccc_cfg_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
 // Forward declaration
 static void request_fast_ble_interval(void);
 
 // BLE HELPER FUNCTIONS
-static void connected(struct bt_conn *conn, uint8_t err)
-{
-	if (err) {
-		printk("Connection failed (err %u)\n", err);
-		return;
-	}
-	printk("Connected\n");
-	current_conn = bt_conn_ref(conn);
-	/* Kick a fast connection interval so BLE notifications arrive in real-time */
-	request_fast_ble_interval();
+static void connected(struct bt_conn* conn, uint8_t err) {
+    if (err) {
+        printk("Connection failed (err %u)\n", err);
+        return;
+    }
+    printk("Connected\n");
+    current_conn = bt_conn_ref(conn);
+    /* Kick a fast connection interval so BLE notifications arrive in real-time */
+    request_fast_ble_interval();
 }
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	printk("Disconnected (reason 0x%02x)\n", reason);
-	if (current_conn) {
-		bt_conn_unref(current_conn);
-		current_conn = NULL;
-	}
+static void disconnected(struct bt_conn* conn, uint8_t reason) {
+    printk("Disconnected (reason 0x%02x)\n", reason);
+    if (current_conn) {
+        bt_conn_unref(current_conn);
+        current_conn = NULL;
+    }
+
+    int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
+    if (err) {
+        printk("Re-advertising failed (err %d)\n", err);
+    } else {
+        printk("Advertising restarted\n");
+    }
 }
+
 BT_CONN_CB_DEFINE(conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
+    .connected = connected,
+    .disconnected = disconnected,
 };
 
 static const struct bt_data ad[] = {
@@ -119,74 +111,68 @@ static const struct bt_data ad[] = {
 };
 
 // called from main to see if BT is ready
-static void bt_ready(int err)
-{
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return;
-	}
-	printk("Bluetooth initialized\n");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad),
-			      NULL, 0);
-	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
-		return;
-	}
-	printk("Advertising started\n");
+static void bt_ready(int err) {
+    if (err) {
+        printk("Bluetooth init failed (err %d)\n", err);
+        return;
+    }
+    printk("Bluetooth initialized\n");
+    err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
+    if (err) {
+        printk("Advertising failed to start (err %d)\n", err);
+        return;
+    }
+    printk("Advertising started\n");
 }
 
 static void send_prediction_accel_notification(uint8_t label, int16_t x, int16_t y, int16_t z,
-					       uint32_t inference_us, uint16_t arena_bytes,
-					       uint32_t model_bytes){
-	if (!current_conn) return;
-	accel_value[0] = label;
-	accel_value[1] = x & 0xFF;
-	accel_value[2] = (x >> 8) & 0xFF;
-	accel_value[3] = y & 0xFF;
-	accel_value[4] = (y >> 8) & 0xFF;
-	accel_value[5] = z & 0xFF;
-	accel_value[6] = (z >> 8) & 0xFF;
-	accel_value[7] = inference_us & 0xFF;
-	accel_value[8] = (inference_us >> 8) & 0xFF;
-	accel_value[9] = (inference_us >> 16) & 0xFF;
-	accel_value[10] = (inference_us >> 24) & 0xFF;
-	accel_value[11] = arena_bytes & 0xFF;
-	accel_value[12] = (arena_bytes >> 8) & 0xFF;
-	accel_value[13] = model_bytes & 0xFF;
-	accel_value[14] = (model_bytes >> 8) & 0xFF;
-	accel_value[15] = (model_bytes >> 16) & 0xFF;
-	accel_value[16] = (model_bytes >> 24) & 0xFF;
-	accel_value[17] = 0;
-	accel_value[18] = 0;
-	int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1],
-				 accel_value, (uint16_t)sizeof(accel_value));
-	if (err) {
-		printk("Notify failed (err %d)\n", err);
-	}
+                                               uint32_t inference_us, uint16_t arena_bytes,
+                                               uint32_t model_bytes) {
+    if (!current_conn) return;
+    accel_value[0] = label;
+    accel_value[1] = x & 0xFF;
+    accel_value[2] = (x >> 8) & 0xFF;
+    accel_value[3] = y & 0xFF;
+    accel_value[4] = (y >> 8) & 0xFF;
+    accel_value[5] = z & 0xFF;
+    accel_value[6] = (z >> 8) & 0xFF;
+    accel_value[7] = inference_us & 0xFF;
+    accel_value[8] = (inference_us >> 8) & 0xFF;
+    accel_value[9] = (inference_us >> 16) & 0xFF;
+    accel_value[10] = (inference_us >> 24) & 0xFF;
+    accel_value[11] = arena_bytes & 0xFF;
+    accel_value[12] = (arena_bytes >> 8) & 0xFF;
+    accel_value[13] = model_bytes & 0xFF;
+    accel_value[14] = (model_bytes >> 8) & 0xFF;
+    accel_value[15] = (model_bytes >> 16) & 0xFF;
+    accel_value[16] = (model_bytes >> 24) & 0xFF;
+    accel_value[17] = 0;
+    accel_value[18] = 0;
+    int err = bt_gatt_notify(current_conn, &accel_svc.attrs[1], accel_value,
+                             (uint16_t)sizeof(accel_value));
+    if (err) {
+        printk("Notify failed (err %d)\n", err);
+    }
 }
 
 /* Request fast BLE connection interval for real-time data.
  * 7.5ms–15ms interval ≈ 67–133 updates/sec (vs default ~30–50ms). */
-static void request_fast_ble_interval(void)
-{
-	if (!current_conn) return;
-	/* min 7.5ms, max 15ms, latency 0, timeout 4s */
-	static const struct bt_le_conn_param fast_params =
-		BT_LE_CONN_PARAM_INIT(6, 12, 0, 400);
-	int err = bt_conn_le_param_update(current_conn, &fast_params);
-	if (err) {
-		printk("BLE param update request failed (err %d)\n", err);
-	} else {
-		printk("BLE param update requested: 7.5-15ms interval\n");
-	}
+static void request_fast_ble_interval(void) {
+    if (!current_conn) return;
+    /* min 7.5ms, max 15ms, latency 0, timeout 4s */
+    static const struct bt_le_conn_param fast_params = BT_LE_CONN_PARAM_INIT(6, 12, 0, 400);
+    int err = bt_conn_le_param_update(current_conn, &fast_params);
+    if (err) {
+        printk("BLE param update request failed (err %d)\n", err);
+    } else {
+        printk("BLE param update requested: 7.5-15ms interval\n");
+    }
 }
 
 /* Cached ML result so accel-only updates still carry the latest label */
 static uint8_t cached_label = 0xFF;
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
-
-
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
@@ -199,7 +185,7 @@ LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 K_SEM_DEFINE(bma400_ready, 0, 1);
 
 // SPI
-#define SPIOP	SPI_WORD_SET(8) | SPI_TRANSFER_MSB
+#define SPIOP SPI_WORD_SET(8) | SPI_TRANSFER_MSB
 struct spi_dt_spec spispec = SPI_DT_SPEC_GET(DT_NODELABEL(bma400), SPIOP, 0);
 uint8_t rx_buffer[128] = {0};
 
@@ -209,50 +195,45 @@ static const struct gpio_dt_spec int_pin = GPIO_DT_SPEC_GET(int_NODE, gpios);
 static struct gpio_callback int_cb_data;
 
 // BMA400
-#define BMA400_REG_FIFO_CONFIG_1                  UINT8_C(0x27)
+#define BMA400_REG_FIFO_CONFIG_1 UINT8_C(0x27)
 #define FIFOINTER 3
-#define FIFO_SAMPLES 25 // number of samples needed for ML inference window
-#define FIFO_BATCH  10   // samples per FIFO interrupt (200ms at 25Hz) for faster BLE updates
-#define INFERENCE_STRIDE 1  // 1 = infer every sample (lowest latency), 25 = infer every full window
-#define FIFO_WATERMARK_LEVEL    UINT16_C(FIFO_BATCH*7) // 12-bit mode: 7 bytes per XYZ frame
-#define FIFO_FULL_SIZE          UINT16_C(1024)
-#define FIFO_SIZE               (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
-#define FIFO_ACCEL_FRAME_COUNT  UINT8_C(FIFO_SAMPLES)
+#define FIFO_SAMPLES 25    // number of samples needed for ML inference window
+#define FIFO_BATCH 10      // samples per FIFO interrupt (200ms at 25Hz) for faster BLE updates
+#define INFERENCE_STRIDE 1 // 1 = infer every sample (lowest latency), 25 = infer every full window
+#define FIFO_WATERMARK_LEVEL UINT16_C(FIFO_BATCH * 7) // 12-bit mode: 7 bytes per XYZ frame
+#define FIFO_FULL_SIZE UINT16_C(1024)
+#define FIFO_SIZE (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
+#define FIFO_ACCEL_FRAME_COUNT UINT8_C(FIFO_SAMPLES)
 
 BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr);
-BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len, void* intf_ptr);
-void bma400_delay_us(uint32_t period, void *intf_ptr) {
-	k_usleep(period);
+BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len,
+                                   void* intf_ptr);
+void bma400_delay_us(uint32_t period, void* intf_ptr) {
+    k_usleep(period);
 }
 
-static uint8_t              dev_addr    = 31;
-struct bma400_dev           bma_sensor         = {
-        .intf = BMA400_SPI_INTF,
-        .intf_ptr = &dev_addr,
-        .read = read_reg_spi,
-        .write = write_reg_spi,
-        .delay_us = bma400_delay_us,
-        .read_write_len = 8
-};
+static uint8_t dev_addr = 31;
+struct bma400_dev bma_sensor = {.intf = BMA400_SPI_INTF,
+                                .intf_ptr = &dev_addr,
+                                .read = read_reg_spi,
+                                .write = write_reg_spi,
+                                .delay_us = bma400_delay_us,
+                                .read_write_len = 8};
 
 struct bma400_sensor_data acc_data;
 struct bma400_int_enable int_en;
 struct bma400_fifo_data fifo_frame;
 struct bma400_device_conf fifo_conf;
 struct bma400_sensor_conf conf;
-uint8_t fifo_buff[FIFO_SIZE] = { 0 };
+uint8_t fifo_buff[FIFO_SIZE] = {0};
 struct bma400_sensor_conf settings;
-struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = { { 0 } };
-
-
+struct bma400_fifo_sensor_data accel_data[FIFO_SAMPLES] = {{0}};
 
 // callback function for interrupts
-void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-	// set the semaphore
-	//LOG_INF("INT fired! pins=0x%08x", pins);
-	k_sem_give(&bma400_ready);
-
+void bma_int_handler(const struct device* dev, struct gpio_callback* cb, uint32_t pins) {
+    // set the semaphore
+    // LOG_INF("INT fired! pins=0x%08x", pins);
+    k_sem_give(&bma400_ready);
 }
 
 // for reading every sample
@@ -281,42 +262,41 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 // }
 
 // for reading every 25 samples from a buffer
-void thread_read_bma400(void)
-{
-	/* Ring buffer accumulates FIFO_BATCH-sized chunks into a full
-	 * FIFO_SAMPLES (25) window for ML inference.  BLE accel data
-	 * is sent on every batch for near-real-time display (~5Hz). */
-	struct bma400_fifo_sensor_data ml_window[FIFO_SAMPLES];
-	int ml_idx = 0;   /* how many samples in ml_window so far */
-	printk("entered threadread\n");
-	while (1) {
+void thread_read_bma400(void) {
+    /* Ring buffer accumulates FIFO_BATCH-sized chunks into a full
+     * FIFO_SAMPLES (25) window for ML inference.  BLE accel data
+     * is sent on every batch for near-real-time display (~5Hz). */
+    struct bma400_fifo_sensor_data ml_window[FIFO_SAMPLES];
+    int ml_idx = 0; /* how many samples in ml_window so far */
+    printk("entered threadread\n");
+    while (1) {
 
-		k_sem_take(&bma400_ready, K_FOREVER);
+        k_sem_take(&bma400_ready, K_FOREVER);
 
-		printk("entered whileloop\n");
-		/* ── 1. Read whatever is in the FIFO ── */
-		bma400_get_fifo_data(&fifo_frame, &bma_sensor);
-		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
-		bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
+        printk("entered whileloop\n");
+        /* ── 1. Read whatever is in the FIFO ── */
+        bma400_get_fifo_data(&fifo_frame, &bma_sensor);
+        uint16_t got = FIFO_SAMPLES; /* max we can parse */
+        bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
 
-		/* ── 2. Send each new sample via BLE immediately ── */
-		for (int i = 0; i < got; i++) {
-			// send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
-			// 				accel_data[i].z, LATENCY_SENTINEL,
-			// 				(uint16_t)ei_model_arena_size,
-			// 				ei_model_tflite_len);
+        /* ── 2. Send each new sample via BLE immediately ── */
+        for (int i = 0; i < got; i++) {
+            // send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
+            // 				accel_data[i].z, LATENCY_SENTINEL,
+            // 				(uint16_t)ei_model_arena_size,
+            // 				ei_model_tflite_len);
 
-			/* Copy into ML window */
-			// fills inital buffer [0,25]
-			if (ml_idx < FIFO_SAMPLES) {
-				demo_data[ml_idx] = accel_data[i].x;
-				demo_data[ml_idx + 50] = accel_data[i].y;
-				demo_data[ml_idx + 25] = accel_data[i].z;
-				ml_idx++;
-			} 
-			// buffer is fill, start sliding
-			else {
-				memmove(&demo_data[0], &demo_data[1], 24 * sizeof(float));
+            /* Copy into ML window */
+            // fills inital buffer [0,25]
+            if (ml_idx < FIFO_SAMPLES) {
+                demo_data[ml_idx] = accel_data[i].x;
+                demo_data[ml_idx + 50] = accel_data[i].y;
+                demo_data[ml_idx + 25] = accel_data[i].z;
+                ml_idx++;
+            }
+            // buffer is fill, start sliding
+            else {
+                memmove(&demo_data[0], &demo_data[1], 24 * sizeof(float));
                 demo_data[24] = (float)accel_data[i].x;
 
                 // 2. Shift and update Y
@@ -330,62 +310,66 @@ void thread_read_bma400(void)
                 // (Optional) Keep ml_window synced if you still use it for BLE labels
                 memmove(&ml_window[0], &ml_window[1], 24 * sizeof(struct bma400_fifo_sensor_data));
                 ml_window[24] = accel_data[i];
-			}
-				/* Preprocess for Edge Impulse */
+            }
+            /* Preprocess for Edge Impulse */
 
-			/* ── 3. Run ML inference once we have a full 25-sample window ── */
-			if (ml_idx >= FIFO_SAMPLES) {
-				const char *predictedLabel = NULL;
-				float predictedScore = 0.0f;
-				printk("preinfernece\n");
-				uint32_t start_cyc = k_cycle_get_32();
-				int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
-				uint32_t end_cyc = k_cycle_get_32();
-				uint32_t delta_cyc = end_cyc - start_cyc;
-				uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
-					CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
-				printk("post inference\n");
-				if (inferenceResult == 0 && predictedLabel != NULL) {
-					printk("=== ML Prediction: %s (score: %d.%02d) ===\n",predictedLabel,(int)predictedScore,(int)((predictedScore - (int)predictedScore) * 100));
+            /* ── 3. Run ML inference once we have a full 25-sample window ── */
+            if (ml_idx >= FIFO_SAMPLES) {
+                const char* predictedLabel = NULL;
+                float predictedScore = 0.0f;
+                printk("preinfernece\n");
+                uint32_t start_cyc = k_cycle_get_32();
+                int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
+                uint32_t end_cyc = k_cycle_get_32();
+                uint32_t delta_cyc = end_cyc - start_cyc;
+                uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
+                                                 CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
+                printk("post inference\n");
+                if (inferenceResult == 0 && predictedLabel != NULL) {
+                    printk("=== ML Prediction: %s (score: %d.%02d) ===\n", predictedLabel,
+                           (int)predictedScore,
+                           (int)((predictedScore - (int)predictedScore) * 100));
 
-					uint8_t result_to_send = 0xFF;
-					if      (strcmp(predictedLabel, "class 1") == 0) result_to_send = 0;
-					else if (strcmp(predictedLabel, "class 2") == 0) result_to_send = 1;
-					else if (strcmp(predictedLabel, "class 3") == 0) result_to_send = 2;
-					else if (strcmp(predictedLabel, "class 4") == 0) result_to_send = 3;
-					else if (strcmp(predictedLabel, "class 5") == 0)   result_to_send = 4;
-					else if (strcmp(predictedLabel, "class 6") == 0)   result_to_send = 5;
-					/* Send one notification with the fresh ML label */
-					printk("result: %d\n", result_to_send);
-					cached_label = result_to_send;
+                    uint8_t result_to_send = 0xFF;
+                    if (strcmp(predictedLabel, "class 1") == 0)
+                        result_to_send = 0;
+                    else if (strcmp(predictedLabel, "class 2") == 0)
+                        result_to_send = 1;
+                    else if (strcmp(predictedLabel, "class 3") == 0)
+                        result_to_send = 2;
+                    else if (strcmp(predictedLabel, "class 4") == 0)
+                        result_to_send = 3;
+                    else if (strcmp(predictedLabel, "class 5") == 0)
+                        result_to_send = 4;
+                    else if (strcmp(predictedLabel, "class 6") == 0)
+                        result_to_send = 5;
+                    /* Send one notification with the fresh ML label */
+                    printk("result: %d\n", result_to_send);
+                    cached_label = result_to_send;
 
-					int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
-					int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
-					int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
-					send_prediction_accel_notification(result_to_send, lx, ly, lz,
-									latency_us,
-									(uint16_t)ei_model_arena_size,
-									ei_model_tflite_len);
-					printk("Inference latency: %u us | Arena: %u B | Model: %u B\n",
-						latency_us, ei_model_arena_size, ei_model_tflite_len);
-				} else {
-					printk("Inference failed with code: %d\n", inferenceResult);
-				}
-		}
-			// ml_idx = 0;  // took out 2/18; because doesn't work w/ sliding window method
-		}
+                    int16_t lx = ml_window[FIFO_SAMPLES - 1].x;
+                    int16_t ly = ml_window[FIFO_SAMPLES - 1].y;
+                    int16_t lz = ml_window[FIFO_SAMPLES - 1].z;
+                    send_prediction_accel_notification(result_to_send, lx, ly, lz, latency_us,
+                                                       (uint16_t)ei_model_arena_size,
+                                                       ei_model_tflite_len);
+                    printk("Inference latency: %u us | Arena: %u B | Model: %u B\n", latency_us,
+                           ei_model_arena_size, ei_model_tflite_len);
+                } else {
+                    printk("Inference failed with code: %d\n", inferenceResult);
+                }
+            }
+            // ml_idx = 0;  // took out 2/18; because doesn't work w/ sliding window method
+        }
 
-
-		/* ── 4b. Battery: re-arm sensor immediately ── */
-		bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
-		int_en.conf = BMA400_ENABLE;
-		bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-	}
-
+        /* ── 4b. Battery: re-arm sensor immediately ── */
+        bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+        int_en.conf = BMA400_ENABLE;
+        bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+    }
 }
 
-
-// for testing if SPI works	
+// for testing if SPI works
 // void thread_read_bma400(void)
 // {
 //     // Print MAC address ONCE
@@ -401,222 +385,212 @@ void thread_read_bma400(void)
 //     int16_t fake_z = 3000;
 //     while(1){
 //         // Wait 100ms (10Hz data rate)
-//         k_sleep(K_MSEC(100));   
+//         k_sleep(K_MSEC(100));
 //         // Generate fake changing data
 //         fake_x += 10;
 //         fake_y -= 5;
-//         fake_z += 15;    
+//         fake_z += 15;
 //         LOG_INF("Fake data: x=%d, y=%d, z=%d", fake_x, fake_y, fake_z);
 //         send_accel_notification(fake_x, fake_y, fake_z);
 //     }
 // }
 
-
-
 // Need to make sure stack is big enough to run NN code
-K_THREAD_DEFINE(thread_read_bma400_id, STACKSIZE*4, thread_read_bma400, NULL, NULL, NULL, THREAD_READ_BMA_PRIORITY, 0, 0);
+K_THREAD_DEFINE(thread_read_bma400_id, STACKSIZE * 4, thread_read_bma400, NULL, NULL, NULL,
+                THREAD_READ_BMA_PRIORITY, 0, 0);
 
 // Function for SPI Read
-BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr)
-{
-	int err;
+BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len,
+                                  void* intf_ptr) {
+    int err;
 
-	/* STEP 4.1 - Set the transmit and receive buffers */
-	// When reading the BMA400, the first byte read is a dummy, so we need to read two bytes and interpret the second one
-	// For a transceive there are 3 steps:
-	//		   |       step 1         | step 2 | step 3
-	//	Master | 1[7 bit reg address] |  0x0   |   0x0
-	//	Slave  |	     dummy        | dummy  | data from sensor	
-	// therefore, if we want to read 1 byte from the sensor, we need to read 3 bytes from the sensor (1 during send, 2 during read)
-	// Since the BMA400 API already adds the dummy byte, we only need to add one more byte
-	// This extra byte is because the first read happens during the register write, so we need to read again	
+    /* STEP 4.1 - Set the transmit and receive buffers */
+    // When reading the BMA400, the first byte read is a dummy, so we need to read two bytes and
+    // interpret the second one For a transceive there are 3 steps:
+    //		   |       step 1         | step 2 | step 3
+    //	Master | 1[7 bit reg address] |  0x0   |   0x0
+    //	Slave  |	     dummy        | dummy  | data from sensor
+    // therefore, if we want to read 1 byte from the sensor, we need to read 3 bytes from the sensor
+    // (1 during send, 2 during read) Since the BMA400 API already adds the dummy byte, we only need
+    // to add one more byte This extra byte is because the first read happens during the register
+    // write, so we need to read again
 
-	uint8_t tx_buffer = reg_address;
-	struct spi_buf tx_spi_buf		= {.buf = (void *)&tx_buffer, .len = 1};
-	struct spi_buf_set tx_spi_buf_set 	= {.buffers = &tx_spi_buf, .count = 1};
-	struct spi_buf rx_spi_bufs 		= {.buf = rx_buffer, .len = len+1};
-	struct spi_buf_set rx_spi_buf_set	= {.buffers = &rx_spi_bufs, .count = 1};
-	
+    uint8_t tx_buffer = reg_address;
+    struct spi_buf tx_spi_buf = {.buf = (void*)&tx_buffer, .len = 1};
+    struct spi_buf_set tx_spi_buf_set = {.buffers = &tx_spi_buf, .count = 1};
+    struct spi_buf rx_spi_bufs = {.buf = rx_buffer, .len = len + 1};
+    struct spi_buf_set rx_spi_buf_set = {.buffers = &rx_spi_bufs, .count = 1};
 
-	/* STEP 4.2 - Call the transceive function */
-	err = spi_transceive_dt(&spispec, &tx_spi_buf_set, &rx_spi_buf_set);
-	if (err < 0) {
-		LOG_ERR("spi_transceive_dt() failed, err: %d, 0x%02X", err,tx_buffer);
-		// return err;
-	}
+    /* STEP 4.2 - Call the transceive function */
+    err = spi_transceive_dt(&spispec, &tx_spi_buf_set, &rx_spi_buf_set);
+    if (err < 0) {
+        LOG_ERR("spi_transceive_dt() failed, err: %d, 0x%02X", err, tx_buffer);
+        // return err;
+    }
 
-	for(int i = 0; i < len; i++)
-	{
-		data[i] = rx_buffer[i+1]; // data[0] = dummy byte, data[1] = data
-	}
+    for (int i = 0; i < len; i++) {
+        data[i] = rx_buffer[i + 1]; // data[0] = dummy byte, data[1] = data
+    }
 
-	return 0;
+    return 0;
 }
 // Func for SPI Write
-BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len, void* intf_ptr)
-{
-	int err;
+BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len,
+                                   void* intf_ptr) {
+    int err;
 
-	/* STEP 5.1 - delcare a tx buffer having register address and data */
-	// When writing to the BMA400, the first byte read is an adress, so we need to write two bytes
-	// For a transceive there are 2 steps:
-	//		   |       step 1         | step 2 |
-	//	Master | 1[7 bit reg address] |  val   |
-	//	Slave  |	     dummy        | dummy  |
-	// therefore, if we want to write 1 byte to the sensor, we need to write 2 bytes from the sensor (1 adress, 1 data)
-	uint8_t tx_buf[2] = {reg_address, data[0]}; // to write, set the MSB to 0
-	struct spi_buf	tx_spi_buf 		= {.buf = tx_buf, .len = len+1};
-	struct spi_buf_set tx_spi_buf_set	= {.buffers = &tx_spi_buf, .count = 1};
+    /* STEP 5.1 - delcare a tx buffer having register address and data */
+    // When writing to the BMA400, the first byte read is an adress, so we need to write two bytes
+    // For a transceive there are 2 steps:
+    //		   |       step 1         | step 2 |
+    //	Master | 1[7 bit reg address] |  val   |
+    //	Slave  |	     dummy        | dummy  |
+    // therefore, if we want to write 1 byte to the sensor, we need to write 2 bytes from the sensor
+    // (1 adress, 1 data)
+    uint8_t tx_buf[2] = {reg_address, data[0]}; // to write, set the MSB to 0
+    struct spi_buf tx_spi_buf = {.buf = tx_buf, .len = len + 1};
+    struct spi_buf_set tx_spi_buf_set = {.buffers = &tx_spi_buf, .count = 1};
 
-	/* STEP 5.2 - call the spi_write_dt function with SPISPEC to write buffers */
-	err = spi_write_dt(&spispec, &tx_spi_buf_set);
-	if (err < 0) {
-		LOG_ERR("spi_write_dt() failed, err %d", err);
-		return err;
-	}
+    /* STEP 5.2 - call the spi_write_dt function with SPISPEC to write buffers */
+    err = spi_write_dt(&spispec, &tx_spi_buf_set);
+    if (err < 0) {
+        LOG_ERR("spi_write_dt() failed, err %d", err);
+        return err;
+    }
 
-	return 0;
+    return 0;
 }
 
 // Init Functions
 // for FIFO Buffer Reads
-void init_fifo_watermark()
-{
-	conf.type = BMA400_ACCEL;
-	int8_t rslt = bma400_get_sensor_conf(&conf, 1, &bma_sensor);
+void init_fifo_watermark() {
+    conf.type = BMA400_ACCEL;
+    int8_t rslt = bma400_get_sensor_conf(&conf, 1, &bma_sensor);
 
-	conf.param.accel.odr = BMA400_ODR_25HZ;
-	conf.param.accel.range = BMA400_RANGE_4G;
-	conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
+    conf.param.accel.odr = BMA400_ODR_25HZ;
+    conf.param.accel.range = BMA400_RANGE_4G;
+    conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
 
-	rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
+    rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
 
-	fifo_conf.type = BMA400_FIFO_CONF;
+    fifo_conf.type = BMA400_FIFO_CONF;
 
-	rslt = bma400_get_device_conf(&fifo_conf, 1, &bma_sensor);
+    rslt = bma400_get_device_conf(&fifo_conf, 1, &bma_sensor);
 
-	fifo_conf.param.fifo_conf.conf_regs = BMA400_FIFO_X_EN 
-										| BMA400_FIFO_Y_EN 
-										| BMA400_FIFO_Z_EN	
-										| BMA400_FIFO_AUTO_FLUSH;   // flush on power mode change (12-bit mode for full resolution)
-	fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
-	fifo_conf.param.fifo_conf.fifo_watermark = FIFO_WATERMARK_LEVEL;	// whatever the value of fifo_watermark_level is
-	//fifo_conf.param.fifo_conf.fifo_watermark = 1;		// every 40 ms
-	fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
+    fifo_conf.param.fifo_conf.conf_regs =
+        BMA400_FIFO_X_EN | BMA400_FIFO_Y_EN | BMA400_FIFO_Z_EN |
+        BMA400_FIFO_AUTO_FLUSH; // flush on power mode change (12-bit mode for full resolution)
+    fifo_conf.param.fifo_conf.conf_status = BMA400_ENABLE;
+    fifo_conf.param.fifo_conf.fifo_watermark =
+        FIFO_WATERMARK_LEVEL; // whatever the value of fifo_watermark_level is
+    // fifo_conf.param.fifo_conf.fifo_watermark = 1;		// every 40 ms
+    fifo_conf.param.fifo_conf.fifo_wm_channel = BMA400_INT_CHANNEL_1;
 
-	rslt = bma400_set_device_conf(&fifo_conf, 1, &bma_sensor);
+    rslt = bma400_set_device_conf(&fifo_conf, 1, &bma_sensor);
 
-	fifo_frame.data = fifo_buff;
-	fifo_frame.length = FIFO_SIZE;
+    fifo_frame.data = fifo_buff;
+    fifo_frame.length = FIFO_SIZE;
 
-	int_en.type = BMA400_FIFO_WM_INT_EN;
-	int_en.conf = BMA400_ENABLE;
-	bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
-	rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-	printk("FIFO WM init: set_power_mode + enable_interrupt rslt=%d\n", rslt);
+    int_en.type = BMA400_FIFO_WM_INT_EN;
+    int_en.conf = BMA400_ENABLE;
+    bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+    rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+    printk("FIFO WM init: set_power_mode + enable_interrupt rslt=%d\n", rslt);
 }
 // idk
-void init_activity()
-{
-	settings.type = BMA400_GEN1_INT;
-	bma400_get_sensor_conf(&settings, 1, &bma_sensor);
+void init_activity() {
+    settings.type = BMA400_GEN1_INT;
+    bma400_get_sensor_conf(&settings, 1, &bma_sensor);
 
-	settings.param.gen_int.int_chan = BMA400_INT_CHANNEL_1;
+    settings.param.gen_int.int_chan = BMA400_INT_CHANNEL_1;
     settings.param.gen_int.axes_sel = BMA400_AXIS_XYZ_EN;
     settings.param.gen_int.data_src = BMA400_DATA_SRC_ACC_FILT1;
-	settings.param.gen_int.criterion_sel = BMA400_ACTIVITY_INT;
-	settings.param.gen_int.evaluate_axes = BMA400_ANY_AXES_INT;
+    settings.param.gen_int.criterion_sel = BMA400_ACTIVITY_INT;
+    settings.param.gen_int.evaluate_axes = BMA400_ANY_AXES_INT;
     settings.param.gen_int.ref_update = BMA400_UPDATE_EVERY_TIME;
-	settings.param.gen_int.hysteresis = BMA400_HYST_48_MG;
-	settings.param.gen_int.gen_int_thres = 0x10;
-	settings.param.gen_int.gen_int_dur = 15;
+    settings.param.gen_int.hysteresis = BMA400_HYST_48_MG;
+    settings.param.gen_int.gen_int_thres = 0x10;
+    settings.param.gen_int.gen_int_dur = 15;
 
-	bma400_set_sensor_conf(&settings, 1, &bma_sensor);
+    bma400_set_sensor_conf(&settings, 1, &bma_sensor);
 
-	int_en.type = BMA400_GEN1_INT_EN;
-	int_en.conf = BMA400_ENABLE;
+    int_en.type = BMA400_GEN1_INT_EN;
+    int_en.conf = BMA400_ENABLE;
 
-	bma400_set_power_mode(BMA400_MODE_NORMAL,&bma_sensor);
-	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+    bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+    bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 }
 // For reads every interrupt
-void init_read_lp()
-{
-	conf.type = BMA400_ACCEL;
-	int8_t rslt = bma400_get_sensor_conf(&conf, 1, &bma_sensor);
+void init_read_lp() {
+    conf.type = BMA400_ACCEL;
+    int8_t rslt = bma400_get_sensor_conf(&conf, 1, &bma_sensor);
 
-	conf.param.accel.odr = BMA400_ODR_25HZ;
-	conf.param.accel.range = BMA400_RANGE_4G;
-	conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
-	conf.param.accel.osr_lp = BMA400_ACCEL_OSR_SETTING_0;
-	conf.param.accel.int_chan = BMA400_INT_CHANNEL_1;
+    conf.param.accel.odr = BMA400_ODR_25HZ;
+    conf.param.accel.range = BMA400_RANGE_4G;
+    conf.param.accel.data_src = BMA400_DATA_SRC_ACCEL_FILT_1;
+    conf.param.accel.osr_lp = BMA400_ACCEL_OSR_SETTING_0;
+    conf.param.accel.int_chan = BMA400_INT_CHANNEL_1;
 
-	rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
+    rslt = bma400_set_sensor_conf(&conf, 1, &bma_sensor);
 
-	int_en.type = BMA400_DRDY_INT_EN;
-	int_en.conf = BMA400_ENABLE;
+    int_en.type = BMA400_DRDY_INT_EN;
+    int_en.conf = BMA400_ENABLE;
 
-	bma400_set_power_mode(BMA400_MODE_LOW_POWER,&bma_sensor);
-	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+    bma400_set_power_mode(BMA400_MODE_LOW_POWER, &bma_sensor);
+    bma400_enable_interrupt(&int_en, 1, &bma_sensor);
 }
 
-int main(void)
-{
-	int err;
-	
-	/* STEP 10.1 - Check if SPI and GPIO devices are ready */
-	err = spi_is_ready_dt(&spispec);
-	if (!err) {
-		LOG_ERR("Error: SPI device is not ready, err: %d", err);
-		return 0;
-	}
+int main(void) {
+    int err;
 
-	if (!device_is_ready(int_pin.port)) {
-		LOG_ERR("Device not Ready");
-		return -1;
-	}
+    /* STEP 10.1 - Check if SPI and GPIO devices are ready */
+    err = spi_is_ready_dt(&spispec);
+    if (!err) {
+        LOG_ERR("Error: SPI device is not ready, err: %d", err);
+        return 0;
+    }
 
-	err = gpio_pin_configure_dt(&int_pin, GPIO_INPUT);
-	if (err < 0) {
-		LOG_ERR("Error: GPIO device is not ready, err: %d", err);
-		return -1;
-	}
+    if (!device_is_ready(int_pin.port)) {
+        LOG_ERR("Device not Ready");
+        return -1;
+    }
 
+    err = gpio_pin_configure_dt(&int_pin, GPIO_INPUT);
+    if (err < 0) {
+        LOG_ERR("Error: GPIO device is not ready, err: %d", err);
+        return -1;
+    }
 
-	err = bt_enable(bt_ready);
-	if(err){
-		printk("bt_enable failed (err %d)\n",err);
-		return -1;
-	} else{
-		printk("bt_enable() called, waiting for callback...\n");
-	}
-	/* STEP 3 - Configure the interrupt on the button's pin */
-	err = gpio_pin_interrupt_configure_dt(&int_pin, GPIO_INT_EDGE_RISING);
-	//err = gpio_pin_interrupt_configure_dt(&int_pin, GPIO_INT_LEVEL_ACTIVE);
+    err = bt_enable(bt_ready);
+    if (err) {
+        printk("bt_enable failed (err %d)\n", err);
+        return -1;
+    } else {
+        printk("bt_enable() called, waiting for callback...\n");
+    }
+    /* STEP 3 - Configure the interrupt on the button's pin */
+    err = gpio_pin_interrupt_configure_dt(&int_pin, GPIO_INT_EDGE_RISING);
+    // err = gpio_pin_interrupt_configure_dt(&int_pin, GPIO_INT_LEVEL_ACTIVE);
 
-	/* STEP 6 - Initialize the static struct gpio_callback variable   */
-	gpio_init_callback(&int_cb_data, bma_int_handler, BIT(int_pin.pin));
-	printk("Line After intHandler\n");
-	/* STEP 7 - Add the callback function by calling gpio_add_callback()   */
-	gpio_add_callback(int_pin.port, &int_cb_data);
-	printk("GPIO interrupt configured on pin %d, current level: %d\n", 
-		   int_pin.pin, gpio_pin_get_dt(&int_pin));
+    /* STEP 6 - Initialize the static struct gpio_callback variable   */
+    gpio_init_callback(&int_cb_data, bma_int_handler, BIT(int_pin.pin));
+    printk("Line After intHandler\n");
+    /* STEP 7 - Add the callback function by calling gpio_add_callback()   */
+    gpio_add_callback(int_pin.port, &int_cb_data);
+    printk("GPIO interrupt configured on pin %d, current level: %d\n", int_pin.pin,
+           gpio_pin_get_dt(&int_pin));
 
+    bma400_init(&bma_sensor);
+    printk("BMA400 init done\n");
 
-	bma400_init(&bma_sensor);
-	printk("BMA400 init done\n");
+    // init_activity();
 
-	// init_activity();
-	
-	init_fifo_watermark();	// interupts for fifo buffers
-	//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
+    init_fifo_watermark(); // interupts for fifo buffers
+    //	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
+    while (1) {
+        k_sleep(K_FOREVER);
+    }
 
-	
-
-	while(1){
-		k_sleep(K_FOREVER);
-	}
-
-	return 0;
+    return 0;
 }
