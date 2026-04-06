@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balloon Tower Defense – BLE Gesture Control</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --muted: #8b8fa3;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+
+  /* Connection bar */
+  .conn-bar {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 20px; margin-bottom: 16px; width: 100%; max-width: 640px;
+  }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); flex-shrink: 0; transition: background 0.3s; }
+  .status-dot.connected { background: var(--green); }
+  .status-text { flex: 1; font-size: 0.9rem; color: var(--muted); }
+  .status-text.connected { color: var(--green); }
+  button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.disconnect { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+
+  /* Info bar */
+  .info-bar {
+    display: flex; gap: 10px; width: 100%; max-width: 640px; margin-bottom: 10px;
+  }
+  .info-item {
+    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 12px; text-align: center;
+  }
+  .info-item .label { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .info-item .value { font-size: 1.1rem; font-weight: 700; font-family: 'Consolas', monospace; }
+  .info-item .value.gold { color: #eab308; }
+  .info-item .value.lives { color: #ef4444; }
+  .info-item .value.wave { color: #6366f1; }
+
+  /* Selection bar */
+  .selection-bar {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; max-width: 640px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 10px; font-size: 0.85rem;
+  }
+  .sel-spot { font-weight: 700; color: var(--accent); }
+  .sel-tower { flex: 1; }
+  .sel-idle { color: var(--muted); font-size: 0.75rem; }
+
+  /* Game canvas */
+  .game-container {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 12px; width: 100%; max-width: 640px; margin-bottom: 10px;
+  }
+  canvas { width: 100%; display: block; border-radius: 8px; }
+
+  /* Gesture + controls */
+  .bottom-bar {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; max-width: 640px; margin-bottom: 16px; font-size: 0.8rem;
+  }
+  .gesture-status {
+    padding: 6px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--muted);
+  }
+  .gesture-status.active { color: var(--accent); border-color: var(--accent); }
+  .controls-hint { color: #444; font-size: 0.7rem; flex: 1; text-align: right; }
+
+  /* Log */
+  .log {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    width: 100%; max-width: 640px; max-height: 140px; overflow-y: auto;
+    padding: 12px 16px; font-family: 'Consolas', monospace; font-size: 0.75rem;
+    color: var(--muted); line-height: 1.7;
+  }
+  .log .entry { display: flex; gap: 10px; }
+  .log .ts { color: #555; flex-shrink: 0; }
+  .log .msg.conn { color: var(--green); }
+  .log .msg.err { color: var(--red); }
+  .log .msg.game { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Balloon Tower Defense</h1>
+<p class="subtitle">Walk = move spot | Idle = browse towers (5s cycle) | Sixseven = place tower</p>
+
+<div class="conn-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Disconnected</span>
+  <button id="btnConnect" onclick="connectBLE()">Connect</button>
+  <button id="btnDisconnect" class="disconnect" onclick="disconnectBLE()" disabled>Disconnect</button>
+</div>
+
+<div class="info-bar">
+  <div class="info-item"><div class="label">Gold</div><div class="value gold" id="gold">250</div></div>
+  <div class="info-item"><div class="label">Lives</div><div class="value lives" id="lives">20</div></div>
+  <div class="info-item"><div class="label">Wave</div><div class="value wave" id="wave">--</div></div>
+</div>
+
+<div class="selection-bar">
+  <span class="sel-spot" id="selSpot">Spot 1</span>
+  <span class="sel-tower" id="selTower">Arrow - 50g</span>
+  <span class="sel-idle" id="selIdle">Idle to browse towers</span>
+</div>
+
+<div class="game-container">
+  <canvas id="gameCanvas"></canvas>
+</div>
+
+<div class="bottom-bar">
+  <div class="gesture-status" id="gestureStatus">No gesture</div>
+  <button id="btnPause" onclick="togglePause()">Pause</button>
+  <div class="controls-hint">Keyboard: A/D = move spot | W/S = tower | Space = place | P = pause</div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ── BLE (same as dashboard) ────────────────────────────────
+const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
+const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
+const ACTIVITIES = ['idle', 'jump', 'sixseven', 'spinning', 'walking'];
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+let device = null;
+let characteristic = null;
+
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function onNotification(event) {
+  const value = event.target.value;
+  if (value.byteLength < 17) return;
+  const label       = value.getUint8(0);
+  const inferenceUs = value.getUint32(7, true);
+  const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
+  if (isPrediction) handleGesture(label);
+}
+
+async function connectBLE() {
+  try {
+    log('Scanning for AccelDevice…', 'conn');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AccelDevice' }],
+      optionalServices: [SERVICE_UUID],
+    });
+    device.addEventListener('gattserverdisconnected', () => { setConnected(false); log('Device disconnected', 'err'); });
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+    setConnected(true);
+    log('Connected! Walk to move, idle to browse, sixseven to place.', 'conn');
+  } catch (err) { log(`Error: ${err.message}`, 'err'); }
+}
+
+function disconnectBLE() { if (device && device.gatt.connected) device.gatt.disconnect(); setConnected(false); }
+
+function setConnected(connected) {
+  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+  const st = document.getElementById('statusText');
+  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.className = 'status-text' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').disabled = connected;
+  document.getElementById('btnDisconnect').disabled = !connected;
+}
+
+// ── GAME CONSTANTS ─────────────────────────────────────────
+const TOWER_TYPES = [
+  { name: 'Arrow',  cost: 50,  range: 80,  damage: 1,   fireRate: 60,  color: '#3b82f6', letter: 'A' },
+  { name: 'Cannon', cost: 100, range: 70,  damage: 3,   fireRate: 120, color: '#ef4444', letter: 'C' },
+  { name: 'Frost',  cost: 75,  range: 90,  damage: 0.5, fireRate: 90,  color: '#06b6d4', letter: 'F', slow: 0.5 },
+  { name: 'Rapid',  cost: 60,  range: 60,  damage: 0.5, fireRate: 30,  color: '#eab308', letter: 'R' },
+  { name: 'Sniper', cost: 120, range: 150, damage: 5,   fireRate: 180, color: '#a855f7', letter: 'S' },
+];
+
+const PATH = [
+  { x: -20, y: 120 },
+  { x: 180, y: 120 },
+  { x: 180, y: 300 },
+  { x: 420, y: 300 },
+  { x: 420, y: 120 },
+  { x: 640, y: 120 },
+];
+
+const SPOTS = [
+  { x: 80,  y: 60 },
+  { x: 125, y: 210 },
+  { x: 240, y: 240 },
+  { x: 300, y: 360 },
+  { x: 475, y: 210 },
+  { x: 530, y: 60 },
+];
+
+// ── Path math ──────────────────────────────────────────────
+let totalPathLen = 0;
+const segs = [];
+for (let i = 1; i < PATH.length; i++) {
+  const dx = PATH[i].x - PATH[i-1].x, dy = PATH[i].y - PATH[i-1].y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  segs.push({ sx: PATH[i-1].x, sy: PATH[i-1].y, ex: PATH[i].x, ey: PATH[i].y, len });
+  totalPathLen += len;
+}
+
+function posOnPath(progress) {
+  let d = Math.max(0, Math.min(1, progress)) * totalPathLen;
+  for (const s of segs) {
+    if (d <= s.len) { const t = d / s.len; return { x: s.sx + (s.ex - s.sx) * t, y: s.sy + (s.ey - s.sy) * t }; }
+    d -= s.len;
+  }
+  return { x: PATH[PATH.length - 1].x, y: PATH[PATH.length - 1].y };
+}
+
+// ── GAME STATE ─────────────────────────────────────────────
+let gold = 250, lives = 20, waveNum = 0, paused = false;
+let waveActive = false, betweenWaves = true, betweenWaveTimer = 300;
+let balloons = [], towers = [null, null, null, null, null, null], shots = [];
+let currentSpot = 0, towerChoice = 0, isGameOver = false;
+
+// Gesture timing
+let lastWalkTime = 0;
+const WALK_DEBOUNCE = 2000;
+let idleStartTime = null, lastIdleCycle = 0;
+const IDLE_CYCLE_MS = 5000;
+
+// Wave state
+let waveConfig = null, balloonsSpawned = 0, spawnTimer = 0;
+
+// ── GESTURE HANDLERS ───────────────────────────────────────
+function handleGesture(label) {
+  const name = ACTIVITIES[label] || '?';
+  const gs = document.getElementById('gestureStatus');
+  gs.textContent = name;
+  gs.className = 'gesture-status' + ([0, 2, 4].includes(label) ? ' active' : '');
+
+  if (label === 0) { // idle → cycle towers on empty spot
+    if (idleStartTime === null) { idleStartTime = Date.now(); lastIdleCycle = Date.now(); }
+    if (towers[currentSpot] === null && Date.now() - lastIdleCycle >= IDLE_CYCLE_MS) {
+      towerChoice = (towerChoice + 1) % TOWER_TYPES.length;
+      lastIdleCycle = Date.now();
+      log(`Browse: ${TOWER_TYPES[towerChoice].name} (${TOWER_TYPES[towerChoice].cost}g)`, 'game');
+    }
+  } else {
+    idleStartTime = null;
+    if (label === 4) { // walking → move spot
+      const now = Date.now();
+      if (now - lastWalkTime >= WALK_DEBOUNCE) {
+        lastWalkTime = now;
+        currentSpot = (currentSpot + 1) % SPOTS.length;
+        log(`Moved to spot ${currentSpot + 1}`, 'game');
+      }
+    }
+    if (label === 2) { // sixseven → place tower or restart
+      if (isGameOver) { restartGame(); return; }
+      placeTower();
+    }
+  }
+}
+
+function placeTower() {
+  if (towers[currentSpot] !== null) { log('Spot already has a tower!', 'err'); return; }
+  const t = TOWER_TYPES[towerChoice];
+  if (gold < t.cost) { log(`Need ${t.cost}g, have ${gold}g`, 'err'); return; }
+  gold -= t.cost;
+  towers[currentSpot] = { type: towerChoice, cooldown: 0 };
+  log(`Placed ${t.name} at spot ${currentSpot + 1} (-${t.cost}g)`, 'game');
+}
+
+// ── Keyboard (testing without BLE) ─────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+    currentSpot = (currentSpot - 1 + SPOTS.length) % SPOTS.length;
+  } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+    currentSpot = (currentSpot + 1) % SPOTS.length;
+  } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+    if (towers[currentSpot] === null) towerChoice = (towerChoice - 1 + TOWER_TYPES.length) % TOWER_TYPES.length;
+  } else if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+    if (towers[currentSpot] === null) towerChoice = (towerChoice + 1) % TOWER_TYPES.length;
+  } else if (e.code === 'Space') {
+    e.preventDefault();
+    if (isGameOver) restartGame(); else placeTower();
+  } else if (e.code === 'KeyP' || e.code === 'Escape') {
+    togglePause();
+  }
+});
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('btnPause').textContent = paused ? 'Resume' : 'Pause';
+  log(paused ? 'Game paused' : 'Game resumed', 'game');
+}
+
+// ── WAVE MANAGEMENT ────────────────────────────────────────
+function genWave(n) {
+  return { count: 5 + n * 2, hp: 2 + Math.floor(n / 2), speed: 1 + n * 0.12, interval: Math.max(20, 50 - n * 2) };
+}
+
+function startNextWave() {
+  waveNum++;
+  waveConfig = genWave(waveNum);
+  balloonsSpawned = 0; spawnTimer = 0;
+  waveActive = true; betweenWaves = false;
+  log(`Wave ${waveNum}: ${waveConfig.count} balloons (HP ${waveConfig.hp})`, 'game');
+}
+
+function restartGame() {
+  gold = 250; lives = 20; waveNum = 0; paused = false;
+  document.getElementById('btnPause').textContent = 'Pause';
+  waveActive = false; betweenWaves = true; betweenWaveTimer = 300;
+  balloons = []; towers = [null, null, null, null, null, null]; shots = [];
+  currentSpot = 0; towerChoice = 0; isGameOver = false;
+  idleStartTime = null;
+  log('Game restarted!', 'game');
+}
+
+// ── GAME UPDATE ────────────────────────────────────────────
+function update() {
+  if (isGameOver || paused) return;
+
+  // Between-waves countdown
+  if (betweenWaves) { betweenWaveTimer--; if (betweenWaveTimer <= 0) startNextWave(); }
+
+  // Spawn balloons
+  if (waveActive && balloonsSpawned < waveConfig.count) {
+    spawnTimer++;
+    if (spawnTimer >= waveConfig.interval) {
+      spawnTimer = 0;
+      balloons.push({ progress: 0, hp: waveConfig.hp, maxHp: waveConfig.hp, speed: waveConfig.speed, slowMult: 1, slowTimer: 0 });
+      balloonsSpawned++;
+    }
+  }
+
+  // Move balloons
+  for (const b of balloons) {
+    let spd = b.speed;
+    if (b.slowTimer > 0) { spd *= b.slowMult; b.slowTimer--; }
+    b.progress += spd / totalPathLen;
+  }
+
+  // Leak (reached end)
+  for (let i = balloons.length - 1; i >= 0; i--) {
+    if (balloons[i].progress >= 1) { lives--; balloons.splice(i, 1); }
+  }
+
+  // Towers fire
+  for (let s = 0; s < towers.length; s++) {
+    const tw = towers[s];
+    if (!tw) continue;
+    if (tw.cooldown > 0) { tw.cooldown--; continue; }
+    const tt = TOWER_TYPES[tw.type], sp = SPOTS[s];
+    let best = null, bestDist = Infinity;
+    for (const b of balloons) {
+      if (b.hp <= 0) continue;
+      const p = posOnPath(b.progress);
+      const dist = Math.sqrt((p.x - sp.x) ** 2 + (p.y - sp.y) ** 2);
+      if (dist <= tt.range && dist < bestDist) { best = b; bestDist = dist; }
+    }
+    if (best) {
+      best.hp -= tt.damage;
+      if (tt.slow) { best.slowMult = tt.slow; best.slowTimer = 120; }
+      tw.cooldown = tt.fireRate;
+      const bp = posOnPath(best.progress);
+      shots.push({ fx: sp.x, fy: sp.y, tx: bp.x, ty: bp.y, color: tt.color, timer: 6 });
+    }
+  }
+
+  // Kill dead balloons (award gold)
+  for (let i = balloons.length - 1; i >= 0; i--) {
+    if (balloons[i].hp <= 0) { gold += 5 + waveNum; balloons.splice(i, 1); }
+  }
+
+  // Decay shot visuals
+  for (let i = shots.length - 1; i >= 0; i--) { shots[i].timer--; if (shots[i].timer <= 0) shots.splice(i, 1); }
+
+  // Wave complete?
+  if (waveActive && balloonsSpawned >= waveConfig.count && balloons.length === 0) {
+    waveActive = false; betweenWaves = true; betweenWaveTimer = 240;
+    const bonus = 20 + waveNum * 5;
+    gold += bonus;
+    log(`Wave ${waveNum} cleared! +${bonus}g bonus`, 'game');
+  }
+
+  // Game over?
+  if (lives <= 0) { lives = 0; isGameOver = true; log(`Game over on wave ${waveNum}!`, 'err'); }
+
+  // Update HUD
+  document.getElementById('gold').textContent = gold;
+  document.getElementById('lives').textContent = lives;
+  document.getElementById('wave').textContent = waveNum || '--';
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  const spotEl = document.getElementById('selSpot');
+  const towerEl = document.getElementById('selTower');
+  const idleEl = document.getElementById('selIdle');
+
+  spotEl.textContent = `Spot ${currentSpot + 1}`;
+
+  if (towers[currentSpot] !== null) {
+    const tt = TOWER_TYPES[towers[currentSpot].type];
+    towerEl.textContent = `${tt.name} Tower placed`;
+    towerEl.style.color = tt.color;
+    idleEl.textContent = '';
+  } else {
+    const tt = TOWER_TYPES[towerChoice];
+    const afford = gold >= tt.cost;
+    towerEl.textContent = `${tt.name} — ${tt.cost}g | dmg ${tt.damage} | range ${tt.range}`;
+    towerEl.style.color = afford ? tt.color : '#ef4444';
+    if (idleStartTime !== null && towers[currentSpot] === null) {
+      const remaining = Math.ceil((IDLE_CYCLE_MS - (Date.now() - lastIdleCycle)) / 1000);
+      idleEl.textContent = `Next tower in ${Math.max(0, remaining)}s`;
+    } else {
+      idleEl.textContent = 'Idle to browse';
+    }
+  }
+}
+
+// ── CANVAS SETUP ───────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  const W = canvas.parentElement.getBoundingClientRect().width - 24;
+  canvas.width = W * dpr; canvas.height = 400 * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = '400px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function balloonColor(maxHp) {
+  if (maxHp <= 2) return '#ef4444';
+  if (maxHp <= 4) return '#3b82f6';
+  if (maxHp <= 6) return '#22c55e';
+  return '#a855f7';
+}
+
+// ── DRAW ───────────────────────────────────────────────────
+function draw() {
+  const W = canvas.width / dpr, H = 400;
+  ctx.clearRect(0, 0, W, H);
+
+  // Path road
+  ctx.strokeStyle = '#3d2e1e'; ctx.lineWidth = 32; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(PATH[0].x, PATH[0].y);
+  for (let i = 1; i < PATH.length; i++) ctx.lineTo(PATH[i].x, PATH[i].y);
+  ctx.stroke();
+  ctx.strokeStyle = '#4f3d2c'; ctx.lineWidth = 26;
+  ctx.beginPath(); ctx.moveTo(PATH[0].x, PATH[0].y);
+  for (let i = 1; i < PATH.length; i++) ctx.lineTo(PATH[i].x, PATH[i].y);
+  ctx.stroke();
+
+  // Tower spots
+  for (let i = 0; i < SPOTS.length; i++) {
+    const s = SPOTS[i], sel = i === currentSpot, has = towers[i] !== null;
+
+    if (has) {
+      const tt = TOWER_TYPES[towers[i].type];
+      // Range circle if selected
+      if (sel) {
+        ctx.beginPath(); ctx.arc(s.x, s.y, tt.range, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.stroke();
+      }
+      // Tower body
+      ctx.fillStyle = tt.color; ctx.fillRect(s.x - 15, s.y - 15, 30, 30);
+      ctx.strokeStyle = sel ? '#fff' : tt.color; ctx.lineWidth = sel ? 2.5 : 1;
+      ctx.setLineDash([]); ctx.strokeRect(s.x - 15, s.y - 15, 30, 30);
+      // Letter
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(tt.letter, s.x, s.y);
+    } else {
+      // Range preview if selected
+      if (sel) {
+        const tt = TOWER_TYPES[towerChoice];
+        ctx.beginPath(); ctx.arc(s.x, s.y, tt.range, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(99,102,241,0.05)'; ctx.fill();
+        ctx.strokeStyle = tt.color + '55'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
+      }
+      // Empty spot circle
+      ctx.beginPath(); ctx.arc(s.x, s.y, 20, 0, Math.PI * 2);
+      if (sel) {
+        ctx.fillStyle = 'rgba(99,102,241,0.15)'; ctx.fill();
+        ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2; ctx.setLineDash([]);
+        // Ghost tower preview
+        const tt = TOWER_TYPES[towerChoice];
+        ctx.fillStyle = tt.color + '55'; ctx.fillRect(s.x - 12, s.y - 12, 24, 24);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(tt.letter, s.x, s.y);
+      } else {
+        ctx.strokeStyle = '#2a2d3a'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+      // Spot number
+      ctx.fillStyle = sel ? '#6366f1' : '#444'; ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(i + 1, s.x, s.y + 28);
+    }
+  }
+
+  // Balloons
+  for (const b of balloons) {
+    if (b.hp <= 0) continue;
+    const p = posOnPath(b.progress);
+    const r = 8 + Math.min(b.maxHp, 4);
+    // String
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y + r); ctx.lineTo(p.x - 3, p.y + r + 10); ctx.stroke();
+    // Body
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = balloonColor(b.maxHp); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+    // Shine
+    ctx.beginPath(); ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.25, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fill();
+    // HP bar (if damaged)
+    if (b.hp < b.maxHp) {
+      const bw = r * 2, bx = p.x - r, by = p.y - r - 7;
+      ctx.fillStyle = '#333'; ctx.fillRect(bx, by, bw, 3);
+      ctx.fillStyle = '#22c55e'; ctx.fillRect(bx, by, bw * (b.hp / b.maxHp), 3);
+    }
+    // Slow indicator
+    if (b.slowTimer > 0) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
+      ctx.strokeStyle = '#06b6d4'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // Shot lines
+  for (const s of shots) {
+    ctx.globalAlpha = s.timer / 6;
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(s.fx, s.fy); ctx.lineTo(s.tx, s.ty); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Between waves banner
+  if (betweenWaves && !isGameOver) {
+    ctx.fillStyle = 'rgba(99,102,241,0.9)'; ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`Next wave in ${Math.ceil(betweenWaveTimer / 60)}s — place your towers!`, W / 2, 25);
+  }
+
+  // Game over
+  if (isGameOver) {
+    ctx.fillStyle = 'rgba(15,17,23,0.85)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#e1e4ed'; ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 24);
+    ctx.font = '16px sans-serif'; ctx.fillStyle = '#8b8fa3';
+    ctx.fillText(`Survived ${waveNum} waves`, W / 2, H / 2 + 10);
+    ctx.fillText('Sixseven or Space to restart', W / 2, H / 2 + 36);
+  }
+
+  // Paused overlay
+  if (paused && !isGameOver) {
+    ctx.fillStyle = 'rgba(15,17,23,0.7)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#e1e4ed'; ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PAUSED', W / 2, H / 2);
+    ctx.font = '14px sans-serif'; ctx.fillStyle = '#8b8fa3';
+    ctx.fillText('Press P or click Resume', W / 2, H / 2 + 30);
+  }
+}
+
+// ── GAME LOOP ──────────────────────────────────────────────
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+gameLoop();
+</script>
+</body>
+</html>
