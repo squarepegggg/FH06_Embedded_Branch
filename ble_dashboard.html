@@ -511,7 +511,12 @@ function onVoltage(voltageMv, isPrediction) {
   if (isPrediction) voltagePredictionIndices.push(voltageHistory.length - 1);
   if (voltageHistory.length > VOLTAGE_MAX_HIST) {
     voltageHistory.shift();
-    voltagePredictionIndices = voltagePredictionIndices.map(i => i - 1).filter(i => i >= 0);
+    // Shift prediction marker indices left by one and drop any that fell off.
+    // (voltagePredictionIndices is const, so mutate in place instead of reassigning.)
+    for (let i = voltagePredictionIndices.length - 1; i >= 0; i--) {
+      voltagePredictionIndices[i] -= 1;
+      if (voltagePredictionIndices[i] < 0) voltagePredictionIndices.splice(i, 1);
+    }
   }
   scheduleChartRedraw();
 }
@@ -772,7 +777,17 @@ function onNotification(event) {
 }
 
 // ── Connect ─────────────────────────────────────────────────
+// Desktop app (Electron) scans BLE advertisements natively via noble in the
+// main process and pushes parsed payloads through the `electron.setOnPrediction`
+// IPC bridge. The Web Bluetooth GATT path is only used when this page is
+// opened directly in a browser.
 async function connectBLE() {
+  if (window.electron && typeof window.electron.setOnPrediction === 'function') {
+    setConnected(true);
+    log('Listening for advertisements via desktop scanner…', 'conn');
+    return;
+  }
+
   try {
     log('Scanning for AccelDevice…', 'conn');
     device = await navigator.bluetooth.requestDevice({
@@ -812,6 +827,24 @@ function disconnectBLE() {
     device.gatt.disconnect();
   }
   setConnected(false);
+}
+
+// ── Desktop (Electron) IPC bridge ───────────────────────────
+// When running inside the Electron desktop app, main.js parses advertisements
+// with manufacturer ID 0x0059 and forwards {pred, x, y, z, voltageMv} here.
+if (window.electron && typeof window.electron.setOnPrediction === 'function') {
+  window.electron.setOnPrediction((payload) => {
+    if (!payload) return;
+    const { pred, x, y, z, voltageMv } = payload;
+    if (typeof pred === 'number') onPrediction(pred);
+    if (typeof x === 'number' && typeof y === 'number' && typeof z === 'number') {
+      onAccelerometer(x, y, z);
+    }
+    if (typeof voltageMv === 'number') onVoltage(voltageMv, true);
+  });
+  // Auto-flip UI to "connected" since the main process is already scanning.
+  setConnected(true);
+  log('Desktop scanner active — listening for 0x0059 advertisements', 'conn');
 }
 
 // ── UI state helpers ────────────────────────────────────────

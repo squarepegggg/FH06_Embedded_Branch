@@ -22,6 +22,15 @@ function createWindow() {
     },
   });
 
+  // Electron requires an explicit handler for navigator.bluetooth.requestDevice().
+  // Without one, the chooser immediately fires "User cancelled the requestDevice() chooser."
+  // We don't use Web Bluetooth in the desktop app (we scan advertisements via noble),
+  // so just no-op any chooser that gets triggered.
+  mainWindow.webContents.on('select-bluetooth-device', (event, devices, callback) => {
+    event.preventDefault();
+    callback('');
+  });
+
   const dashboardPath = path.resolve(__dirname, '..', 'ble_dashboard.html');
   mainWindow.loadFile(dashboardPath);
 
@@ -38,8 +47,15 @@ function createWindow() {
 
 function startScanning() {
   if (scanning) return;
-  if (noble.state !== 'poweredOn') return;
+  // Mark intent to scan BEFORE the state check, so the stateChange handler
+  // will pick it up once the adapter powers on (noble.state is usually
+  // 'unknown' on cold start, especially on macOS).
   scanning = true;
+  if (noble.state !== 'poweredOn') {
+    console.log(`[noble] adapter not ready (state=${noble.state}), waiting…`);
+    return;
+  }
+  console.log('[noble] startScanning');
   noble.startScanning([], true);
 }
 
@@ -68,15 +84,27 @@ function parsePayloadFromManufacturerData(manufacturerData) {
 }
 
 noble.on('stateChange', (state) => {
-  if (state === 'poweredOn' && mainWindow && scanning) {
+  console.log(`[noble] stateChange -> ${state}`);
+  if (state === 'poweredOn' && scanning) {
+    console.log('[noble] adapter powered on, starting scan');
     noble.startScanning([], true);
   } else if (state !== 'poweredOn') {
     noble.stopScanning();
   }
 });
 
+noble.on('scanStart', () => console.log('[noble] scanStart'));
+noble.on('scanStop', () => console.log('[noble] scanStop'));
+
 noble.on('discover', (peripheral) => {
-  const payload = parsePayloadFromManufacturerData(peripheral.advertisement?.manufacturerData);
+  const mdata = peripheral.advertisement?.manufacturerData;
+  // Quick filter: only log/parse advertisements carrying our company ID (0x0059).
+  if (!mdata || mdata.length < 2) return;
+  if (mdata[0] !== MANUFACTURER_ID_LE[0] || mdata[1] !== MANUFACTURER_ID_LE[1]) return;
+
+  console.log(`[noble] discover ${peripheral.address || peripheral.id} rssi=${peripheral.rssi} mdata=${mdata.toString('hex')}`);
+
+  const payload = parsePayloadFromManufacturerData(mdata);
   if (payload === null) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('prediction', payload);
