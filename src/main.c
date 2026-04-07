@@ -71,6 +71,9 @@ static const struct bt_data sd[] = {
 
 static uint16_t cached_voltage_mv = 0xFFFFU;
 
+/* One-shot extended advertising set, created once in main() */
+static struct bt_le_ext_adv *adv_set;
+
 // threads
  #define STACKSIZE 1024
  #define THREAD_READ_BMA_PRIORITY 7
@@ -174,10 +177,24 @@ static uint16_t cached_voltage_mv = 0xFFFFU;
 		adv_mfg_data.z = accel_data[accel_frames_req > 0 ? accel_frames_req - 1 : 0].z;
 		adv_mfg_data.voltage_mv = cached_voltage_mv;
 
-		//bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-		bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-		k_sleep(K_MSEC(10));
-		bt_le_adv_stop();
+		/* Push the latest payload to the adv set, then fire exactly one
+		 * advertising event. The controller powers the radio up, sends the
+		 * event on the primary channels, and powers it back down on its own
+		 * — no manual sleep/stop window required. */
+		int adv_err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad),
+						     sd, ARRAY_SIZE(sd));
+		if (adv_err) {
+			LOG_ERR("ext_adv_set_data: %d", adv_err);
+		}
+
+		struct bt_le_ext_adv_start_param adv_start = {
+			.timeout = 0,
+			.num_events = 1,
+		};
+		adv_err = bt_le_ext_adv_start(adv_set, &adv_start);
+		if (adv_err) {
+			LOG_ERR("ext_adv_start: %d", adv_err);
+		}
 		last_tx_done = true;
  
 	 }
@@ -391,6 +408,16 @@ K_THREAD_DEFINE(thread_read_bma400_id, 8192, thread_read_bma400, NULL, NULL, NUL
 		 return -1;
 	 }
 	err = bt_id_create(&addr, NULL);
+
+	/* Create the extended advertising set once. We reuse the existing
+	 * legacy adv_param (non-connectable, ~20 ms interval). Because we never
+	 * set BT_LE_ADV_OPT_EXT_ADV, the controller still emits legacy ADV PDUs
+	 * — the desktop scanner doesn't need to change. */
+	err = bt_le_ext_adv_create(adv_param, NULL, &adv_set);
+	if (err) {
+		LOG_ERR("bt_le_ext_adv_create failed (err %d)", err);
+		return -1;
+	}
 
 	 if (!device_is_ready(int_pin.port)) {
 		 return -1;
