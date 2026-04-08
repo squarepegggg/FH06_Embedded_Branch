@@ -200,6 +200,12 @@ function log(msg, cls = '') {
 }
 
 // ── BLE notification handler ───────────────────────────────
+// Smooths twitchy raw predictions by collecting 25 samples and acting on the
+// majority label. The live raw label still shows in gestureStatus so you can
+// see what the model is firing on between batches.
+const VOTE_WINDOW = 25;
+let voteBuffer = [];
+
 function onNotification(event) {
   const value = event.target.value;
   if (value.byteLength < 17) return;
@@ -210,14 +216,28 @@ function onNotification(event) {
 
   if (!isPrediction) return;
 
-  const name = ACTIVITIES[label] || 'unknown';
-  document.getElementById('gestureStatus').textContent = name;
+  // Always reflect the latest raw prediction in the status pill
+  document.getElementById('gestureStatus').textContent =
+    `${ACTIVITIES[label] || '?'} (${voteBuffer.length + 1}/${VOTE_WINDOW})`;
+
+  voteBuffer.push(label);
+  if (voteBuffer.length < VOTE_WINDOW) return;
+
+  // Tally and pick the majority
+  const counts = new Array(8).fill(0);
+  for (const l of voteBuffer) counts[l]++;
+  let winner = 0;
+  for (let i = 1; i < 8; i++) if (counts[i] > counts[winner]) winner = i;
+  voteBuffer = [];
+
+  const winnerName = ACTIVITIES[winner] || 'unknown';
+  document.getElementById('gestureStatus').textContent = winnerName;
 
   let acted = false;
-  if (label === 0)      { triggerJump();   acted = true; log('67 → JUMP', 'game'); }
-  else if (label === 1) { triggerSlide();  acted = true; log('clap → SLIDE', 'game'); }
-  else if (label === 4) { moveLane(-1);    acted = true; log('floss → LEFT', 'game'); }
-  else if (label === 3) { moveLane(1);     acted = true; log('disco → RIGHT', 'game'); }
+  if (winner === 0)      { triggerJump();   acted = true; log(`67 (${counts[0]}/${VOTE_WINDOW}) → JUMP`, 'game'); }
+  else if (winner === 1) { triggerSlide();  acted = true; log(`clap (${counts[1]}/${VOTE_WINDOW}) → SLIDE`, 'game'); }
+  else if (winner === 4) { moveLane(-1);    acted = true; log(`floss (${counts[4]}/${VOTE_WINDOW}) → LEFT`, 'game'); }
+  else if (winner === 3) { moveLane(1);     acted = true; log(`disco (${counts[3]}/${VOTE_WINDOW}) → RIGHT`, 'game'); }
 
   document.getElementById('gestureStatus').className =
     'gesture-status' + (acted ? ' active' : '');
