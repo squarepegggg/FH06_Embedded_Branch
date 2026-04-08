@@ -204,113 +204,113 @@ void bma_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_
 
 }
 
-// for reading every sample
-// void thread_read_bma400(void)
-// {
-// 	static int count = 0;
-// 	while(1){
-// 		LOG_INF("In the read thread");
-// 	bt_addr_le_t addr;
-// 	size_t count = 1;
-// 	bt_id_get(&addr, &count);
-// 	printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-//        addr.a.val[5], addr.a.val[4], addr.a.val[3],
-//        addr.a.val[2], addr.a.val[1], addr.a.val[0]);
-// 		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
-// 		// Enable SPI
-// 		const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-// 		pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
-// 		// Read one sample
-// 		bma400_get_accel_data(BMA400_DATA_ONLY, &acc_data, &bma_sensor);
-// 		LOG_INF("x=%d, y=%d, z=%d", acc_data.x, acc_data.y, acc_data.z); //print data to console
-// 		send_accel_notification(acc_data.x,acc_data.y,acc_data.z);
-// 		// Disable SPI
-// 		pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
-// 	}
-// }
-
-// for reading every 25 samples from a buffer
+//for reading every sample
 void thread_read_bma400(void)
 {
-        static int count = 0;
-        while(1){
-            LOG_INF("In the read thread\n");
-
-			// Mac Address stuff For Android phone
- 			bt_addr_le_t addr;	
- 			size_t count = 1;
-	 		bt_id_get(&addr, &count);
-			printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-        	addr.a.val[5], addr.a.val[4], addr.a.val[3],
-		    addr.a.val[2], addr.a.val[1], addr.a.val[0]);
-			
-            k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
-			printk("made it past lock\n");
-
-            // Enable SPI
-            const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
-            pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
-			printk("made it enabling SPI\n");
-
-            // read data from bma400 fifo
-			// 1.) Get data from sensor
-            bma400_get_fifo_data(&fifo_frame, &bma_sensor);
-            uint16_t accel_frames_req = FIFO_SAMPLES;
-            bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
-			printk("read data from bma400 fifo\n");
-
-            // after reading, disable the interrupt and put the bma400 to sleep
-            //int_en.type = BMA400_FIFO_WM_INT_EN;
-            //int_en.conf = BMA400_DISABLE;
-            //int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-            //bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
-
-            // Disable SPI
-            pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
-				
-            // Read the data and convert to m/s^2 
-			// 2.) Preprocess data for ML Model 
-            for(int i = 0; i < FIFO_SAMPLES; i++) {
-                // first convert to m/s^2, we configured to +/- 2G, so 1G = 1024
-                demo_data[i] = (float)(accel_data[i].x)*9.8/512.0f; 
-            	demo_data[i + 25] = (float)(accel_data[i].y)*9.8/512.0f; 
-            	demo_data[i + 50] = (float)(accel_data[i].z)*9.8/512.0f; 
-                // can print here or write to a buffer
- 				//send_accel_notification(x_f,y_f,z_f);	// uncomment/comment for external android phone
-			}
-
-			// 3. Run Inference
-			const char *predictedLabel = NULL;
-			float predictedScore = 0.0f;
-
-			int inferenceResult = ei_v2_classify_test(&predictedLabel,&predictedScore);	// call the classification 
-
-			if(inferenceResult == 0 && predictedLabel != NULL){	// if there is nothing
-				LOG_INF("Prediction: %s (score: %.2f)",predictedLabel,predictedScore);
-
-				// 4. Send only prediction over BLE
-				uint8_t result_to_send = 0; // data to be sent to phone
-				
-					// 4a. figure out what we are sending to external device
-
-				// Send data to Android/ Extenral Device
-				if (current_conn) {
-            		int ble_err = bt_gatt_notify(current_conn, &accel_svc.attrs[1], &result_to_send, 1);
-					if(ble_err){
-						LOG_ERR("BLE Notify Failed %d", ble_err);
-					}
-        		}		
-			}	else {
-				LOG_ERR("Inference failed with code: %d", inferenceResult);
-			}
-
-
-			// 5. reset sensor
-			bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
-        	int_en.conf = BMA400_ENABLE;
-        	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
-        }
+	static int count = 0;
+	while(1){
+		LOG_INF("In the read thread");
+	bt_addr_le_t addr;
+	size_t count = 1;
+	bt_id_get(&addr, &count);
+	printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+       addr.a.val[5], addr.a.val[4], addr.a.val[3],
+       addr.a.val[2], addr.a.val[1], addr.a.val[0]);
+		k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+		// Enable SPI
+		const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+		pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+		// Read one sample
+		bma400_get_accel_data(BMA400_DATA_ONLY, &acc_data, &bma_sensor);
+		LOG_INF("x=%d, y=%d, z=%d", acc_data.x, acc_data.y, acc_data.z); //print data to console
+		send_accel_notification(acc_data.x,acc_data.y,acc_data.z);
+		// Disable SPI
+		pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+	}
 }
+
+// for reading every 25 samples from a buffer
+// void thread_read_bma400(void)
+// {
+//         static int count = 0;
+//         while(1){
+//             LOG_INF("In the read thread\n");
+
+// 			// Mac Address stuff For Android phone
+//  			bt_addr_le_t addr;	
+//  			size_t count = 1;
+// 	 		bt_id_get(&addr, &count);
+// 			printk("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//         	addr.a.val[5], addr.a.val[4], addr.a.val[3],
+// 		    addr.a.val[2], addr.a.val[1], addr.a.val[0]);
+			
+//             k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+// 			printk("made it past lock\n");
+
+//             // Enable SPI
+//             const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+//             pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+// 			printk("made it enabling SPI\n");
+
+//             // read data from bma400 fifo
+// 			// 1.) Get data from sensor
+//             bma400_get_fifo_data(&fifo_frame, &bma_sensor);
+//             uint16_t accel_frames_req = FIFO_SAMPLES;
+//             bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
+// 			printk("read data from bma400 fifo\n");
+
+//             // after reading, disable the interrupt and put the bma400 to sleep
+//             //int_en.type = BMA400_FIFO_WM_INT_EN;
+//             //int_en.conf = BMA400_DISABLE;
+//             //int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+//             //bma400_set_power_mode(BMA400_MODE_SLEEP,&bma_sensor);
+
+//             // Disable SPI
+//             pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+				
+//             // Read the data and convert to m/s^2 
+// 			// 2.) Preprocess data for ML Model 
+//             for(int i = 0; i < FIFO_SAMPLES; i++) {
+//                 // first convert to m/s^2, we configured to +/- 2G, so 1G = 1024
+//                 demo_data[i] = (float)(accel_data[i].x)*9.8/512.0f; 
+//             	demo_data[i + 25] = (float)(accel_data[i].y)*9.8/512.0f; 
+//             	demo_data[i + 50] = (float)(accel_data[i].z)*9.8/512.0f; 
+//                 // can print here or write to a buffer
+//  				//send_accel_notification(x_f,y_f,z_f);	// uncomment/comment for external android phone
+// 			}
+
+// 			// 3. Run Inference
+// 			const char *predictedLabel = NULL;
+// 			float predictedScore = 0.0f;
+
+// 			int inferenceResult = ei_v2_classify_test(&predictedLabel,&predictedScore);	// call the classification 
+
+// 			if(inferenceResult == 0 && predictedLabel != NULL){	// if there is nothing
+// 				LOG_INF("Prediction: %s (score: %.2f)",predictedLabel,predictedScore);
+
+// 				// 4. Send only prediction over BLE
+// 				uint8_t result_to_send = 0; // data to be sent to phone
+				
+// 					// 4a. figure out what we are sending to external device
+
+// 				// Send data to Android/ Extenral Device
+// 				if (current_conn) {
+//             		int ble_err = bt_gatt_notify(current_conn, &accel_svc.attrs[1], &result_to_send, 1);
+// 					if(ble_err){
+// 						LOG_ERR("BLE Notify Failed %d", ble_err);
+// 					}
+//         		}		
+// 			}	else {
+// 				LOG_ERR("Inference failed with code: %d", inferenceResult);
+// 			}
+
+
+// 			// 5. reset sensor
+// 			bma400_set_power_mode(BMA400_MODE_NORMAL, &bma_sensor);
+//         	int_en.conf = BMA400_ENABLE;
+//         	bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+//         }
+// }
 // for testing if SPI works	
 // void thread_read_bma400(void)
 // {
@@ -526,9 +526,9 @@ int main(void)
 	bma400_init(&bma_sensor);
   
 
-	// init_activity();
-	init_fifo_watermark();	// interupts for fifo buffers
-	//	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
+	init_activity();
+	// init_fifo_watermark();	// interupts for fifo buffers
+	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
 	//const struct device *cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
 	//pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);

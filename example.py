@@ -9,29 +9,33 @@ from pathlib import Path
 print("TensorFlow:", tf.__version__)
 
 # Load CSV files and extract labels
-def load_csv_data(csv_dir="."):
-    """Load all CSV files and extract labels from filenames."""
+def load_csv_data(csv_dir="ML"):
+    """Load all CSV files and extract labels from filenames.
+
+    Files are named like "Ronak Dab.csv" / "Matthew 67.csv" / "Nikhil Griddy.csv".
+    The label is the class (second token), lowercased — person identity is dropped.
+    """
     csv_files = glob.glob(os.path.join(csv_dir, "*.csv"))
     all_data = []
     all_labels = []  # One label per file
-    
+
     for csv_file in csv_files:
-        # Extract label from filename: "Andres_sitting.csv" -> "sitting"
-        filename = Path(csv_file).stem  # Gets "Andres_sitting" without .csv
-        # Find the first underscore and take everything after it
-        if "_" in filename:
-            label = filename.split("_", 1)[1]  # Split on first underscore, take second part
+        # Extract label from filename: "Ronak Dab.csv" -> "dab"
+        filename = Path(csv_file).stem  # e.g. "Ronak Dab"
+        # Split on first space, take the class portion
+        if " " in filename:
+            label = filename.split(" ", 1)[1].strip().lower()
         else:
-            label = filename  # Fallback if no underscore
-        
+            label = filename.lower()  # Fallback if no space
+
         # Load CSV data
         df = pd.read_csv(csv_file)
         # Extract X, Y, Z columns (skip Timestamp)
         data = df[["X", "Y", "Z"]].values.astype(np.float32)
-        
+
         all_data.append(data)
         all_labels.append(label)  # One label per file
-    
+
     return all_data, all_labels
 
 # Create windows of size 25 from the time series data
