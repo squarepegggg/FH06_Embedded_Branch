@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pac-Man – BLE Gesture Control</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --muted: #8b8fa3;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; text-align: center; }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    width: 100%;
+    max-width: 640px;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+  .status-text { flex: 1; font-size: 0.9rem; color: var(--muted); }
+  .status-text.connected { color: var(--green); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.disconnect {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .controls-legend {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  .legend-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+    font-size: 0.8rem;
+  }
+  .legend-item .gesture { color: var(--accent); font-weight: 700; }
+  .legend-item .arrow { color: var(--muted); font-size: 1.1rem; }
+
+  .game-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  canvas {
+    display: block;
+    border-radius: 8px;
+    background: #000;
+    image-rendering: pixelated;
+  }
+
+  .info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  .score { font-size: 1.2rem; font-weight: 700; font-family: 'Consolas', monospace; }
+  .gesture-status {
+    font-size: 0.85rem;
+    color: var(--muted);
+    padding: 6px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .gesture-status.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .log {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .log .entry { display: flex; gap: 10px; }
+  .log .ts { color: #555; flex-shrink: 0; }
+  .log .msg.conn { color: var(--green); }
+  .log .msg.err { color: var(--red); }
+  .log .msg.game { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Pac-Man</h1>
+<p class="subtitle">Eat all the dots, dodge the ghosts | BLE controlled</p>
+
+<div class="conn-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Disconnected</span>
+  <button id="btnConnect" onclick="connectBLE()">Connect</button>
+  <button id="btnDisconnect" class="disconnect" onclick="disconnectBLE()" disabled>Disconnect</button>
+</div>
+
+<div class="controls-legend">
+  <div class="legend-item"><div class="gesture">67</div><div class="arrow">▲ UP</div></div>
+  <div class="legend-item"><div class="gesture">clap</div><div class="arrow">▼ DOWN</div></div>
+  <div class="legend-item"><div class="gesture">dab</div><div class="arrow">◀ LEFT</div></div>
+  <div class="legend-item"><div class="gesture">roll</div><div class="arrow">▶ RIGHT</div></div>
+</div>
+
+<div class="info-bar">
+  <div class="score">Score: <span id="score">0</span> / <span id="totalScore">0</span></div>
+  <div class="gesture-status" id="gestureStatus">No gesture</div>
+</div>
+
+<div class="game-container">
+  <canvas id="gameCanvas"></canvas>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ── BLE UUIDs (same as dashboard) ──────────────────────────
+const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
+const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
+
+// ei-v4: 8 dance classes, alphabetical order from EI Studio (digits before letters).
+const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+let device = null;
+let characteristic = null;
+
+// ── Logging ────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── BLE notification handler ───────────────────────────────
+function onNotification(event) {
+  const value = event.target.value;
+  if (value.byteLength < 17) return;
+
+  const label       = value.getUint8(0);
+  const inferenceUs = value.getUint32(7, true);
+  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
+
+  if (!isPrediction) return;
+
+  const name = ACTIVITIES[label] || 'unknown';
+  document.getElementById('gestureStatus').textContent = name;
+
+  let dirChanged = false;
+  if (label === 0)      { setDirection(0, -1); dirChanged = true; log('67 → UP', 'game'); }
+  else if (label === 1) { setDirection(0,  1); dirChanged = true; log('clap → DOWN', 'game'); }
+  else if (label === 2) { setDirection(-1, 0); dirChanged = true; log('dab → LEFT', 'game'); }
+  else if (label === 6) { setDirection(1,  0); dirChanged = true; log('roll → RIGHT', 'game'); }
+
+  document.getElementById('gestureStatus').className =
+    'gesture-status' + (dirChanged ? ' active' : '');
+}
+
+// ── BLE connect / disconnect ───────────────────────────────
+async function connectBLE() {
+  try {
+    log('Scanning for AccelDevice…', 'conn');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AccelDevice' }],
+      optionalServices: [SERVICE_UUID],
+    });
+
+    device.addEventListener('gattserverdisconnected', () => {
+      setConnected(false);
+      log('Device disconnected', 'err');
+    });
+
+    log('Connecting to GATT server…', 'conn');
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+
+    setConnected(true);
+    log('Connected — 67=up, clap=down, dab=left, roll=right', 'conn');
+  } catch (err) {
+    log(`Error: ${err.message}`, 'err');
+  }
+}
+
+function disconnectBLE() {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  setConnected(false);
+}
+
+function setConnected(connected) {
+  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+  const st = document.getElementById('statusText');
+  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.className = 'status-text' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').disabled = connected;
+  document.getElementById('btnDisconnect').disabled = !connected;
+}
+
+// ── PAC-MAN GAME ───────────────────────────────────────────
+// Maze legend: # = wall, . = pellet, P = pacman start, G = ghost spawn
+// Grid is 17 cols × 13 rows. Verified all open cells are connected.
+const MAZE = [
+  "#################",
+  "#...............#",
+  "#.#####.#.#####.#",
+  "#.....#...#.....#",
+  "#.###.#.#.#.###.#",
+  "#.....#.G.#.....#",
+  "#####.#.G.#.#####",
+  "#.....#...#.....#",
+  "#.###.#####.###.#",
+  "#...............#",
+  "#.#####.#.#####.#",
+  "#.......P.......#",
+  "#################",
+];
+
+const TILE = 28;
+const ROWS = MAZE.length;
+const COLS = MAZE[0].length;
+const W = COLS * TILE;
+const H = ROWS * TILE;
+
+const PAC_SPEED = 2;     // px/frame; must divide TILE evenly
+const GHOST_SPEED = 1;   // ghosts slower so the game is winnable
+
+let grid;          // mutable copy of MAZE (split into chars)
+let pac;           // { x, y, dx, dy, nextDx, nextDy, mouthAngle }
+let ghosts;        // [{ x, y, dx, dy, color }]
+let score;
+let totalPellets;
+let gameState;     // 'playing' | 'over' | 'won'
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  const containerW = canvas.parentElement.getBoundingClientRect().width - 32;
+  const scale = Math.min(1, containerW / W);
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+
+function isWall(c, r) {
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+  return grid[r][c] === '#';
+}
+
+function initGame() {
+  grid = MAZE.map(row => row.split(''));
+  totalPellets = 0;
+  ghosts = [];
+  const ghostColors = ['#ef4444', '#22d3ee', '#f97316', '#ec4899'];
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const ch = grid[r][c];
+      if (ch === '.') totalPellets++;
+      if (ch === 'P') {
+        pac = {
+          x: c * TILE + TILE / 2,
+          y: r * TILE + TILE / 2,
+          dx: 0, dy: 0,
+          nextDx: 0, nextDy: 0,
+          mouthAngle: 0,
+        };
+        grid[r][c] = ' ';
+      }
+      if (ch === 'G') {
+        ghosts.push({
+          x: c * TILE + TILE / 2,
+          y: r * TILE + TILE / 2,
+          dx: -1, dy: 0,
+          color: ghostColors[ghosts.length % ghostColors.length],
+        });
+        grid[r][c] = ' ';
+      }
+    }
+  }
+  score = 0;
+  gameState = 'playing';
+  document.getElementById('score').textContent = score;
+  document.getElementById('totalScore').textContent = totalPellets;
+}
+
+function setDirection(dx, dy) {
+  if (gameState !== 'playing') {
+    initGame();
+    log('New game started', 'game');
+    return;
+  }
+  // Allow instant 180° reversal mid-cell
+  if (dx === -pac.dx && dy === -pac.dy && (pac.dx !== 0 || pac.dy !== 0)) {
+    pac.dx = dx;
+    pac.dy = dy;
+    pac.nextDx = dx;
+    pac.nextDy = dy;
+    return;
+  }
+  pac.nextDx = dx;
+  pac.nextDy = dy;
+}
+
+// Keyboard for desktop testing
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowUp')         { e.preventDefault(); setDirection(0, -1); }
+  else if (e.key === 'ArrowDown')  { e.preventDefault(); setDirection(0,  1); }
+  else if (e.key === 'ArrowLeft')  { e.preventDefault(); setDirection(-1, 0); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); setDirection(1,  0); }
+});
+
+function updatePac() {
+  if (gameState !== 'playing') return;
+
+  const cellX = Math.round((pac.x - TILE / 2) / TILE);
+  const cellY = Math.round((pac.y - TILE / 2) / TILE);
+  const centerX = cellX * TILE + TILE / 2;
+  const centerY = cellY * TILE + TILE / 2;
+
+  // At a cell center? Try to switch direction & eat pellet.
+  if (pac.x === centerX && pac.y === centerY) {
+    if (grid[cellY][cellX] === '.') {
+      grid[cellY][cellX] = ' ';
+      score++;
+      document.getElementById('score').textContent = score;
+      if (score === totalPellets) {
+        gameState = 'won';
+        log(`YOU WIN! Ate all ${totalPellets} pellets`, 'game');
+        return;
+      }
+    }
+
+    // Apply queued turn if it's a valid direction
+    if ((pac.nextDx !== 0 || pac.nextDy !== 0) &&
+        !isWall(cellX + pac.nextDx, cellY + pac.nextDy)) {
+      pac.dx = pac.nextDx;
+      pac.dy = pac.nextDy;
+    }
+
+    // Stop if current direction is blocked
+    if (isWall(cellX + pac.dx, cellY + pac.dy)) {
+      pac.dx = 0;
+      pac.dy = 0;
+    }
+  }
+
+  pac.x += pac.dx * PAC_SPEED;
+  pac.y += pac.dy * PAC_SPEED;
+  if (pac.dx !== 0 || pac.dy !== 0) pac.mouthAngle += 0.25;
+}
+
+function updateGhost(g) {
+  if (gameState !== 'playing') return;
+
+  const cellX = Math.round((g.x - TILE / 2) / TILE);
+  const cellY = Math.round((g.y - TILE / 2) / TILE);
+  const centerX = cellX * TILE + TILE / 2;
+  const centerY = cellY * TILE + TILE / 2;
+
+  if (g.x === centerX && g.y === centerY) {
+    // Pick a new direction. Don't reverse unless dead-end.
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let valid = dirs.filter(([dc, dr]) =>
+      !(dc === -g.dx && dr === -g.dy) && !isWall(cellX + dc, cellY + dr)
+    );
+    if (valid.length === 0) valid = [[-g.dx, -g.dy]];
+
+    // 60% chase pacman, 40% random — gives ghosts personality without being unfair
+    const pacCellX = Math.round((pac.x - TILE / 2) / TILE);
+    const pacCellY = Math.round((pac.y - TILE / 2) / TILE);
+    let chosen;
+    if (Math.random() < 0.4) {
+      chosen = valid[Math.floor(Math.random() * valid.length)];
+    } else {
+      chosen = valid.reduce((best, d) => {
+        const dn = Math.abs(cellX + d[0] - pacCellX) + Math.abs(cellY + d[1] - pacCellY);
+        const db = Math.abs(cellX + best[0] - pacCellX) + Math.abs(cellY + best[1] - pacCellY);
+        return dn < db ? d : best;
+      });
+    }
+    g.dx = chosen[0];
+    g.dy = chosen[1];
+  }
+
+  g.x += g.dx * GHOST_SPEED;
+  g.y += g.dy * GHOST_SPEED;
+}
+
+function checkCollision() {
+  if (gameState !== 'playing') return;
+  for (const g of ghosts) {
+    const dx = g.x - pac.x;
+    const dy = g.y - pac.y;
+    if (dx * dx + dy * dy < (TILE * 0.55) ** 2) {
+      gameState = 'over';
+      log(`GAME OVER — caught by a ghost! Score: ${score}/${totalPellets}`, 'err');
+      return;
+    }
+  }
+}
+
+function update() {
+  updatePac();
+  for (const g of ghosts) updateGhost(g);
+  checkCollision();
+}
+
+function draw() {
+  // Background
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Walls + pellets
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const ch = grid[r][c];
+      if (ch === '#') {
+        ctx.fillStyle = '#1e3a8a';
+        ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(c * TILE + 0.5, r * TILE + 0.5, TILE - 1, TILE - 1);
+      } else if (ch === '.') {
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(c * TILE + TILE / 2, r * TILE + TILE / 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Pac-Man (with mouth)
+  ctx.fillStyle = '#fbbf24';
+  let facing = 0;
+  if (pac.dx === 1) facing = 0;
+  else if (pac.dx === -1) facing = Math.PI;
+  else if (pac.dy === -1) facing = -Math.PI / 2;
+  else if (pac.dy === 1) facing = Math.PI / 2;
+  const mouth = (Math.sin(pac.mouthAngle) + 1) * 0.25 + 0.05;
+  ctx.beginPath();
+  ctx.arc(pac.x, pac.y, TILE * 0.42, facing + mouth, facing - mouth + Math.PI * 2);
+  ctx.lineTo(pac.x, pac.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Ghosts
+  for (const g of ghosts) drawGhost(g);
+
+  // End-of-game overlay
+  if (gameState === 'over' || gameState === 'won') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, H / 2 - 50, W, 100);
+    ctx.fillStyle = gameState === 'won' ? '#22c55e' : '#ef4444';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(gameState === 'won' ? 'YOU WIN!' : 'GAME OVER', W / 2, H / 2);
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = '#e1e4ed';
+    ctx.fillText('Do any control gesture (or arrow key) to restart', W / 2, H / 2 + 25);
+  }
+}
+
+function drawGhost(g) {
+  const r = TILE * 0.42;
+  ctx.fillStyle = g.color;
+  ctx.beginPath();
+  // Round top
+  ctx.arc(g.x, g.y - 2, r, Math.PI, 0, false);
+  // Right side
+  ctx.lineTo(g.x + r, g.y + r - 2);
+  // Wavy bottom (3 humps)
+  const humps = 3;
+  for (let i = 0; i < humps; i++) {
+    const hx1 = g.x + r - (i + 0.5) * (2 * r / humps);
+    const hy1 = g.y + r - 6;
+    const hx2 = g.x + r - (i + 1) * (2 * r / humps);
+    const hy2 = g.y + r - 2;
+    ctx.lineTo(hx1, hy1);
+    ctx.lineTo(hx2, hy2);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye whites
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(g.x - r * 0.4, g.y - 4, r * 0.28, 0, Math.PI * 2);
+  ctx.arc(g.x + r * 0.4, g.y - 4, r * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pupils (look toward direction of motion)
+  ctx.fillStyle = '#0f1117';
+  const pdx = g.dx * 2;
+  const pdy = g.dy * 2;
+  ctx.beginPath();
+  ctx.arc(g.x - r * 0.4 + pdx, g.y - 4 + pdy, r * 0.14, 0, Math.PI * 2);
+  ctx.arc(g.x + r * 0.4 + pdx, g.y - 4 + pdy, r * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Boot
+initGame();
+resizeCanvas();
+gameLoop();
+</script>
+
+</body>
+</html>
