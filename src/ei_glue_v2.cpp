@@ -1,21 +1,24 @@
 /**
- * ei_glue_v2.cpp - C-callable wrapper for the ei-v2 Edge Impulse model
- * 
- * This file uses the ei-v2 model which expects 75 input features.
+ * ei_glue_v2.cpp - C-callable wrapper for the ei-v4 Edge Impulse model
+ *
+ * This file uses the ei-v4 model which expects 75 input features.
  * Input shape: (3, 25, 1) - 3 features, 25 time steps, 1 channel.
  * TensorFlow flattens this column-by-column (all of feature 0, then feature 1, then feature 2).
  * For testing, we use real demo data from the training set.
+ *
+ * NOTE: file/symbol names retain the "_v2" suffix from the previous EI export
+ * to avoid churn across main.c, glueV2.h, and run_nn.c. The model itself is v4.
  */
 
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
 #include "model-parameters/model_metadata.h"
-#include "tflite-model/tflite_learn_801862_22.h"
+#include "tflite-model/tflite_learn_801862_25.h"
 #include <stdio.h>
 float demo_data[75] = {};
 extern "C" {
     extern const unsigned int ei_model_arena_size  = EI_CLASSIFIER_TFLITE_LARGEST_ARENA_SIZE;
-    extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_22_len;
+    extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_25_len;
 }
 
 extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)

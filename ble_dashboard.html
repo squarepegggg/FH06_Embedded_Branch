@@ -367,18 +367,22 @@ const SERVICE_UUID  = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID     = '12345679-1234-5678-1234-1234567890ab';
 
 // ── Activity definitions ────────────────────────────────────
+// ei-v4: 8 dance classes ordered alphabetically by EI Studio (digits before letters).
 const ACTIVITIES = [
-  { id: 0, name: 'idle', icon: '🧍', color: '#f97316' },
-  { id: 1, name: 'jump',       icon: '🦘', color: '#eab308' },
-  { id: 2, name: 'sixseven',    icon: '⁶🤷⁷', color: '#ef4444' },
-  { id: 3, name: 'spinning',    icon: '💃', color: '#22c55e' },
-  { id: 4, name: 'walking',   icon: '🧍', color: '#3b82f6' },
+  { id: 0, name: '67',     icon: '⁶🤷⁷', color: '#ef4444' },
+  { id: 1, name: 'clap',   icon: '👏',   color: '#f97316' },
+  { id: 2, name: 'dab',    icon: '🙆',   color: '#eab308' },
+  { id: 3, name: 'disco',  icon: '🕺',   color: '#22c55e' },
+  { id: 4, name: 'floss',  icon: '🦷',   color: '#14b8a6' },
+  { id: 5, name: 'griddy', icon: '🏈',   color: '#3b82f6' },
+  { id: 6, name: 'roll',   icon: '🌀',   color: '#8b5cf6' },
+  { id: 7, name: 'wave',   icon: '👋',   color: '#ec4899' },
 ];
 
 // ── State ───────────────────────────────────────────────────
 let device = null;
 let characteristic = null;
-const counts = new Array(5).fill(0);
+const counts = new Array(8).fill(0);
 let totalPredictions = 0;
 let warnedLegacyPacket = false;
 const accelHistory = { x: [], y: [], z: [] };
@@ -420,7 +424,7 @@ function log(msg, cls = '') {
 // ── Update UI with a new prediction (called for every sliding-window inference) ──
 function onPrediction(index, options = {}) {
   const { logEvent = true } = options;
-  if (index > 5) { log(`Unknown label index: ${index}`, 'err'); return; }
+  if (index > 7) { log(`Unknown label index: ${index}`, 'err'); return; }
 
   const a = ACTIVITIES[index];
   totalPredictions++;
@@ -735,7 +739,7 @@ function onNotification(event) {
     const arenaBytes  = value.getUint16(11, true);
     const modelBytes  = value.getUint32(13, true);
     const voltageMv   = value.byteLength >= 19 ? value.getUint16(17, true) : VOLTAGE_NO_DATA;
-    const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
+    const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
 
     if (isPrediction) {
       const logEvent = label !== lastLoggedLabel;
@@ -753,14 +757,14 @@ function onNotification(event) {
     const x = value.getInt16(1, true);
     const y = value.getInt16(3, true);
     const z = value.getInt16(5, true);
-    if (label <= 6) onPrediction(label);
+    if (label <= 7) onPrediction(label);
     onAccelerometer(x, y, z);
     return;
   }
 
   if (value.byteLength >= 1) {
     const byte = value.getUint8(0);
-    if (byte <= 6) onPrediction(byte);
+    if (byte <= 7) onPrediction(byte);
     if (!warnedLegacyPacket) {
       log('Received legacy 1-byte packet. Reflash latest firmware for full payload.', 'err');
       warnedLegacyPacket = true;

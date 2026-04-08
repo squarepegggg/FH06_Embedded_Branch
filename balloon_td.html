@@ -104,7 +104,7 @@
 <body>
 
 <h1>Balloon Tower Defense</h1>
-<p class="subtitle">Walk = move spot | Idle = browse towers (5s cycle) | Sixseven = place tower</p>
+<p class="subtitle">Wave = move spot | Clap = browse towers (5s cycle) | 67 = place tower</p>
 
 <div class="conn-bar">
   <div class="status-dot" id="statusDot"></div>
@@ -122,7 +122,7 @@
 <div class="selection-bar">
   <span class="sel-spot" id="selSpot">Spot 1</span>
   <span class="sel-tower" id="selTower">Arrow - 50g</span>
-  <span class="sel-idle" id="selIdle">Idle to browse towers</span>
+  <span class="sel-idle" id="selIdle">Clap to browse towers</span>
 </div>
 
 <div class="game-container">
@@ -141,7 +141,14 @@
 // ── BLE (same as dashboard) ────────────────────────────────
 const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
-const ACTIVITIES = ['idle', 'jump', 'sixseven', 'spinning', 'walking'];
+// ei-v4: 8 dance classes, alphabetical order from EI Studio.
+// NOTE: gameplay below was designed around v2 (idle/walking/sixseven). The label
+// constants used by handleGesture (BROWSE_LABEL, MOVE_LABEL, PLACE_LABEL) are now
+// reassigned to v4 dances — pick whichever feels right.
+const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
+const BROWSE_LABEL = 1;  // clap   — was idle
+const MOVE_LABEL   = 7;  // wave   — was walking
+const PLACE_LABEL  = 0;  // 67     — was sixseven
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 let device = null;
@@ -159,7 +166,7 @@ function onNotification(event) {
   if (value.byteLength < 17) return;
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
+  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
   if (isPrediction) handleGesture(label);
 }
 
@@ -177,7 +184,7 @@ async function connectBLE() {
     await characteristic.startNotifications();
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
     setConnected(true);
-    log('Connected! Walk to move, idle to browse, sixseven to place.', 'conn');
+    log('Connected! Wave to move, clap to browse, "67" to place.', 'conn');
   } catch (err) { log(`Error: ${err.message}`, 'err'); }
 }
 
@@ -258,9 +265,10 @@ function handleGesture(label) {
   const name = ACTIVITIES[label] || '?';
   const gs = document.getElementById('gestureStatus');
   gs.textContent = name;
-  gs.className = 'gesture-status' + ([0, 2, 4].includes(label) ? ' active' : '');
+  gs.className = 'gesture-status' +
+    ([BROWSE_LABEL, MOVE_LABEL, PLACE_LABEL].includes(label) ? ' active' : '');
 
-  if (label === 0) { // idle → cycle towers on empty spot
+  if (label === BROWSE_LABEL) { // browse towers on empty spot
     if (idleStartTime === null) { idleStartTime = Date.now(); lastIdleCycle = Date.now(); }
     if (towers[currentSpot] === null && Date.now() - lastIdleCycle >= IDLE_CYCLE_MS) {
       towerChoice = (towerChoice + 1) % TOWER_TYPES.length;
@@ -269,7 +277,7 @@ function handleGesture(label) {
     }
   } else {
     idleStartTime = null;
-    if (label === 4) { // walking → move spot
+    if (label === MOVE_LABEL) { // move spot
       const now = Date.now();
       if (now - lastWalkTime >= WALK_DEBOUNCE) {
         lastWalkTime = now;
@@ -277,7 +285,7 @@ function handleGesture(label) {
         log(`Moved to spot ${currentSpot + 1}`, 'game');
       }
     }
-    if (label === 2) { // sixseven → place tower or restart
+    if (label === PLACE_LABEL) { // place tower or restart
       if (isGameOver) { restartGame(); return; }
       placeTower();
     }
@@ -438,7 +446,7 @@ function updateSelectionUI() {
       const remaining = Math.ceil((IDLE_CYCLE_MS - (Date.now() - lastIdleCycle)) / 1000);
       idleEl.textContent = `Next tower in ${Math.max(0, remaining)}s`;
     } else {
-      idleEl.textContent = 'Idle to browse';
+      idleEl.textContent = 'Clap to browse';
     }
   }
 }

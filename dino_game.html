@@ -132,7 +132,7 @@
 <body>
 
 <h1>Dino Game</h1>
-<p class="subtitle">Do "sixseven" gesture to jump | BLE controlled</p>
+<p class="subtitle">Do "67" dance to jump | BLE controlled</p>
 
 <div class="conn-bar">
   <div class="status-dot" id="statusDot"></div>
@@ -157,7 +157,8 @@
 const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 
-const ACTIVITIES = ['idle', 'jump', 'sixseven', 'spinning', 'walking'];
+// ei-v4: 8 dance classes, alphabetical order from EI Studio (digits before letters).
+const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 let device = null;
@@ -178,18 +179,18 @@ function onNotification(event) {
 
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
+  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
 
   if (isPrediction) {
     const name = ACTIVITIES[label] || 'unknown';
     document.getElementById('gestureStatus').textContent = name;
     document.getElementById('gestureStatus').className =
-      'gesture-status' + (label === 2 ? ' active' : '');
+      'gesture-status' + (label === 0 ? ' active' : '');
 
-    // sixseven (label 2) = jump
-    if (label === 2) {
+    // "67" (label 0) = jump
+    if (label === 0) {
       triggerJump();
-      log('sixseven detected → JUMP', 'game');
+      log('67 detected → JUMP', 'game');
     }
   }
 }
@@ -217,7 +218,7 @@ async function connectBLE() {
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
 
     setConnected(true);
-    log('Connected — do "sixseven" to jump!', 'conn');
+    log('Connected — do "67" to jump!', 'conn');
   } catch (err) {
     log(`Error: ${err.message}`, 'err');
   }
