@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temple Run – BLE Gesture Control</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --muted: #8b8fa3;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; text-align: center; }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    width: 100%;
+    max-width: 640px;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+  .status-text { flex: 1; font-size: 0.9rem; color: var(--muted); }
+  .status-text.connected { color: var(--green); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.disconnect {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .controls-legend {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  .legend-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+    font-size: 0.8rem;
+  }
+  .legend-item .gesture { color: var(--accent); font-weight: 700; }
+  .legend-item .arrow { color: var(--muted); font-size: 1.05rem; margin-top: 2px; }
+
+  .game-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  canvas {
+    display: block;
+    border-radius: 8px;
+    background: #1f2937;
+  }
+
+  .info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  .score { font-size: 1.2rem; font-weight: 700; font-family: 'Consolas', monospace; }
+  .gesture-status {
+    font-size: 0.85rem;
+    color: var(--muted);
+    padding: 6px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .gesture-status.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .log {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .log .entry { display: flex; gap: 10px; }
+  .log .ts { color: #555; flex-shrink: 0; }
+  .log .msg.conn { color: var(--green); }
+  .log .msg.err { color: var(--red); }
+  .log .msg.game { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Temple Run</h1>
+<p class="subtitle">Jump logs, slide under bars, dodge walls | BLE controlled</p>
+
+<div class="conn-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Disconnected</span>
+  <button id="btnConnect" onclick="connectBLE()">Connect</button>
+  <button id="btnDisconnect" class="disconnect" onclick="disconnectBLE()" disabled>Disconnect</button>
+</div>
+
+<div class="controls-legend">
+  <div class="legend-item"><div class="gesture">67</div><div class="arrow">▲ JUMP</div></div>
+  <div class="legend-item"><div class="gesture">clap</div><div class="arrow">▼ SLIDE</div></div>
+  <div class="legend-item"><div class="gesture">floss</div><div class="arrow">◀ LEFT</div></div>
+  <div class="legend-item"><div class="gesture">disco</div><div class="arrow">▶ RIGHT</div></div>
+</div>
+
+<div class="info-bar">
+  <div class="score">Score: <span id="score">0</span></div>
+  <div class="gesture-status" id="gestureStatus">No gesture</div>
+</div>
+
+<div class="game-container">
+  <canvas id="gameCanvas"></canvas>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ── BLE UUIDs (same as dashboard) ──────────────────────────
+const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
+const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
+
+// ei-v4: 8 dance classes, alphabetical order from EI Studio (digits before letters).
+const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+let device = null;
+let characteristic = null;
+
+// ── Logging ────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── BLE notification handler ───────────────────────────────
+function onNotification(event) {
+  const value = event.target.value;
+  if (value.byteLength < 17) return;
+
+  const label       = value.getUint8(0);
+  const inferenceUs = value.getUint32(7, true);
+  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
+
+  if (!isPrediction) return;
+
+  const name = ACTIVITIES[label] || 'unknown';
+  document.getElementById('gestureStatus').textContent = name;
+
+  let acted = false;
+  if (label === 0)      { triggerJump();   acted = true; log('67 → JUMP', 'game'); }
+  else if (label === 1) { triggerSlide();  acted = true; log('clap → SLIDE', 'game'); }
+  else if (label === 4) { moveLane(-1);    acted = true; log('floss → LEFT', 'game'); }
+  else if (label === 3) { moveLane(1);     acted = true; log('disco → RIGHT', 'game'); }
+
+  document.getElementById('gestureStatus').className =
+    'gesture-status' + (acted ? ' active' : '');
+}
+
+// ── BLE connect / disconnect ───────────────────────────────
+async function connectBLE() {
+  try {
+    log('Scanning for AccelDevice…', 'conn');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AccelDevice' }],
+      optionalServices: [SERVICE_UUID],
+    });
+
+    device.addEventListener('gattserverdisconnected', () => {
+      setConnected(false);
+      log('Device disconnected', 'err');
+    });
+
+    log('Connecting to GATT server…', 'conn');
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+
+    setConnected(true);
+    log('Connected — 67=jump, clap=slide, floss=left, disco=right', 'conn');
+  } catch (err) {
+    log(`Error: ${err.message}`, 'err');
+  }
+}
+
+function disconnectBLE() {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  setConnected(false);
+}
+
+function setConnected(connected) {
+  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+  const st = document.getElementById('statusText');
+  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.className = 'status-text' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').disabled = connected;
+  document.getElementById('btnDisconnect').disabled = !connected;
+}
+
+// ── TEMPLE RUN GAME ────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+
+const W = 420;
+const H = 560;
+const NUM_LANES = 3;
+const LANE_W = 110;
+const ROAD_X = (W - NUM_LANES * LANE_W) / 2;
+const PLAYER_Y = H - 110;
+const PLAYER_W = 46;
+const PLAYER_H = 70;
+
+// Action timings (frames @ ~60fps)
+const JUMP_DURATION  = 38;   // ~0.63s airborne
+const SLIDE_DURATION = 38;   // ~0.63s sliding
+const JUMP_HEIGHT    = 70;   // visual peak in px
+
+// Difficulty knobs — kept gentle
+const BASE_SPEED         = 1.5;   // px/frame at score 0
+const MAX_SPEED          = 3.5;   // hard cap
+const SPEED_PER_SCORE    = 0.04;  // gradual ramp
+const BASE_SPAWN         = 130;   // frames between spawns at score 0
+const MIN_SPAWN          = 75;    // tightest spawn interval
+
+let player;
+let obstacles;
+let frameCount;
+let score;
+let speed;
+let spawnInterval;
+let gameOver;
+
+function resizeCanvas() {
+  const containerW = canvas.parentElement.getBoundingClientRect().width - 32;
+  const scale = Math.min(1, containerW / W);
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+
+function laneCenterX(lane) {
+  return ROAD_X + lane * LANE_W + LANE_W / 2;
+}
+
+function initGame() {
+  player = {
+    lane: 1,
+    jumpTimer: 0,
+    slideTimer: 0,
+    runFrame: 0,
+  };
+  obstacles = [];
+  frameCount = 0;
+  score = 0;
+  speed = BASE_SPEED;
+  spawnInterval = BASE_SPAWN;
+  gameOver = false;
+  document.getElementById('score').textContent = score;
+}
+
+function triggerJump() {
+  if (gameOver) { initGame(); log('New run started', 'game'); return; }
+  if (player.jumpTimer === 0 && player.slideTimer === 0) {
+    player.jumpTimer = JUMP_DURATION;
+  }
+}
+
+function triggerSlide() {
+  if (gameOver) { initGame(); log('New run started', 'game'); return; }
+  if (player.slideTimer === 0 && player.jumpTimer === 0) {
+    player.slideTimer = SLIDE_DURATION;
+  }
+}
+
+function moveLane(delta) {
+  if (gameOver) { initGame(); log('New run started', 'game'); return; }
+  player.lane = Math.max(0, Math.min(NUM_LANES - 1, player.lane + delta));
+}
+
+// Keyboard controls for testing without BLE
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowUp')         { e.preventDefault(); triggerJump(); }
+  else if (e.key === 'ArrowDown')  { e.preventDefault(); triggerSlide(); }
+  else if (e.key === 'ArrowLeft')  { e.preventDefault(); moveLane(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); moveLane(1); }
+});
+
+function spawnObstacle() {
+  const lane = Math.floor(Math.random() * NUM_LANES);
+  // Random type — give jump/slide slightly more often than wall so all 4 controls matter
+  const r = Math.random();
+  let type;
+  if (r < 0.4)      type = 'log';   // jump over
+  else if (r < 0.8) type = 'bar';   // slide under
+  else              type = 'wall';  // dodge to a different lane
+  obstacles.push({ lane, type, y: -80 });
+}
+
+function update() {
+  if (gameOver) return;
+
+  if (player.jumpTimer  > 0) player.jumpTimer--;
+  if (player.slideTimer > 0) player.slideTimer--;
+  player.runFrame++;
+
+  // Spawn
+  if (frameCount % Math.round(spawnInterval) === 0) spawnObstacle();
+
+  // Move + score + collide
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const o = obstacles[i];
+    o.y += speed;
+
+    // Cleared past the player → score it
+    if (o.y > PLAYER_Y + 30) {
+      obstacles.splice(i, 1);
+      score++;
+      document.getElementById('score').textContent = score;
+      speed         = Math.min(MAX_SPEED, BASE_SPEED + score * SPEED_PER_SCORE);
+      spawnInterval = Math.max(MIN_SPAWN, BASE_SPAWN - score * 0.5);
+      continue;
+    }
+
+    // Collision window — obstacle is roughly at the player's row
+    if (Math.abs(o.y - PLAYER_Y) < 28 && o.lane === player.lane) {
+      const safeJump  = o.type === 'log' && player.jumpTimer  > 0;
+      const safeSlide = o.type === 'bar' && player.slideTimer > 0;
+      if (!safeJump && !safeSlide) {
+        gameOver = true;
+        log(`GAME OVER — hit a ${o.type}! Score: ${score}`, 'err');
+        return;
+      }
+    }
+  }
+
+  frameCount++;
+}
+
+// ── Drawing ────────────────────────────────────────────────
+function drawRoad() {
+  // Side dirt
+  ctx.fillStyle = '#3f3320';
+  ctx.fillRect(0, 0, ROAD_X, H);
+  ctx.fillRect(W - ROAD_X, 0, ROAD_X, H);
+
+  // Road surface
+  ctx.fillStyle = '#52442b';
+  ctx.fillRect(ROAD_X, 0, NUM_LANES * LANE_W, H);
+
+  // Lane dividers — dashed scrolling lines
+  ctx.strokeStyle = '#8b6d3a';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([18, 16]);
+  ctx.lineDashOffset = -((frameCount * speed) % 34);
+  for (let i = 1; i < NUM_LANES; i++) {
+    const x = ROAD_X + i * LANE_W;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Road edges
+  ctx.strokeStyle = '#a0826d';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ROAD_X, 0);          ctx.lineTo(ROAD_X, H);
+  ctx.moveTo(W - ROAD_X, 0);      ctx.lineTo(W - ROAD_X, H);
+  ctx.stroke();
+}
+
+function drawObstacle(o) {
+  const cx = laneCenterX(o.lane);
+  if (o.type === 'log') {
+    // Brown log lying across the lane — JUMP
+    ctx.fillStyle = '#92531a';
+    ctx.fillRect(cx - LANE_W * 0.45, o.y - 12, LANE_W * 0.9, 24);
+    ctx.strokeStyle = '#5b310a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - LANE_W * 0.45, o.y - 12, LANE_W * 0.9, 24);
+    // Wood-grain rings
+    ctx.fillStyle = '#5b310a';
+    ctx.beginPath();
+    ctx.arc(cx - LANE_W * 0.4 + 6, o.y, 6, 0, Math.PI * 2);
+    ctx.arc(cx + LANE_W * 0.4 - 6, o.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (o.type === 'bar') {
+    // Red overhead beam — SLIDE
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(cx - LANE_W * 0.45, o.y - 8, LANE_W * 0.9, 16);
+    ctx.strokeStyle = '#7f1d1d';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - LANE_W * 0.45, o.y - 8, LANE_W * 0.9, 16);
+    // Posts on each side to hint "overhead"
+    ctx.fillStyle = '#7f1d1d';
+    ctx.fillRect(cx - LANE_W * 0.45 - 4, o.y - 18, 4, 36);
+    ctx.fillRect(cx + LANE_W * 0.45,     o.y - 18, 4, 36);
+  } else {
+    // Stone wall — must SWITCH LANE
+    ctx.fillStyle = '#6b7280';
+    ctx.fillRect(cx - LANE_W * 0.45, o.y - 22, LANE_W * 0.9, 44);
+    ctx.strokeStyle = '#1f2937';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - LANE_W * 0.45, o.y - 22, LANE_W * 0.9, 44);
+    // Brick pattern
+    ctx.strokeStyle = '#374151';
+    ctx.lineWidth = 1;
+    for (let row = 0; row < 3; row++) {
+      const y = o.y - 22 + row * 15;
+      ctx.beginPath();
+      ctx.moveTo(cx - LANE_W * 0.45, y);
+      ctx.lineTo(cx + LANE_W * 0.45, y);
+      ctx.stroke();
+      const offset = (row % 2) * 18;
+      for (let bx = 0; bx < 4; bx++) {
+        const x = cx - LANE_W * 0.45 + offset + bx * 22;
+        if (x > cx - LANE_W * 0.45 && x < cx + LANE_W * 0.45) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x, y + 15);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+}
+
+function drawPlayer() {
+  const cx = laneCenterX(player.lane);
+  let bodyY = PLAYER_Y - PLAYER_H;
+  let bodyH = PLAYER_H;
+  let bodyW = PLAYER_W;
+
+  // Jump arc
+  if (player.jumpTimer > 0) {
+    const t = (JUMP_DURATION - player.jumpTimer) / JUMP_DURATION;
+    const arc = 4 * t * (1 - t); // 0..1..0
+    bodyY -= arc * JUMP_HEIGHT;
+    // Shadow on ground
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(cx, PLAYER_Y, PLAYER_W * 0.4 * (1 - arc * 0.5), 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Slide pose: shorter and wider
+  if (player.slideTimer > 0) {
+    bodyH = PLAYER_H * 0.45;
+    bodyY = PLAYER_Y - bodyH;
+    bodyW = PLAYER_W * 1.15;
+  }
+
+  // Body
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillRect(cx - bodyW / 2, bodyY + bodyH * 0.25, bodyW, bodyH * 0.6);
+  ctx.strokeStyle = '#7c3a00';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - bodyW / 2, bodyY + bodyH * 0.25, bodyW, bodyH * 0.6);
+
+  // Head
+  const headR = bodyW * 0.32;
+  ctx.fillStyle = '#fde68a';
+  ctx.beginPath();
+  ctx.arc(cx, bodyY + bodyH * 0.2, headR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#7c3a00';
+  ctx.stroke();
+
+  // Eyes
+  ctx.fillStyle = '#0f1117';
+  ctx.beginPath();
+  ctx.arc(cx - 4, bodyY + bodyH * 0.18, 2, 0, Math.PI * 2);
+  ctx.arc(cx + 4, bodyY + bodyH * 0.18, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs (running animation when grounded)
+  if (player.jumpTimer === 0 && player.slideTimer === 0) {
+    const swing = Math.sin(player.runFrame * 0.35) * 6;
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(cx - 12, bodyY + bodyH * 0.85, 8, 14 + swing);
+    ctx.fillRect(cx + 4,  bodyY + bodyH * 0.85, 8, 14 - swing);
+  } else if (player.slideTimer > 0) {
+    // Tucked in — small feet sticking out
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(cx + bodyW * 0.4, bodyY + bodyH * 0.55, 6, 8);
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawRoad();
+  for (const o of obstacles) drawObstacle(o);
+  drawPlayer();
+
+  // HUD: speed bar
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(8, 8, 90, 18);
+  ctx.fillStyle = '#fbbf24';
+  const pct = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
+  ctx.fillRect(10, 10, 86 * Math.max(0, Math.min(1, pct)), 14);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SPEED', 53, 21);
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, H / 2 - 60, W, 120);
+    ctx.fillStyle = '#ef4444';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 5);
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#e1e4ed';
+    ctx.fillText(`Score: ${score}`, W / 2, H / 2 + 20);
+    ctx.fillStyle = '#8b8fa3';
+    ctx.fillText('Do any control gesture (or arrow key) to restart', W / 2, H / 2 + 40);
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Boot
+initGame();
+resizeCanvas();
+gameLoop();
+</script>
+
+</body>
+</html>
