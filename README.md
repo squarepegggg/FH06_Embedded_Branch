@@ -52,12 +52,12 @@ Because the device is powered solely by solar harvesting, we are actively explor
 ├── src/
 │   ├── main.c           # Main firmware: BMA400 thread, ML integration, BLE
 │   ├── bma400.c         # BMA400 driver (SPI, FIFO)
-│   └── ei_glue_v2.cpp   # Edge Impulse model wrapper
+│   └── ei_glue_v4.cpp   # Edge Impulse model wrapper
 ├── include/
-│   ├── glueV2.h         # C API for classifier
+│   ├── glueV4.h         # C API for classifier
 │   ├── bma400.h         # BMA400 driver API
 │   └── bma400_defs.h
-├── ei-v2/               # Edge Impulse model (TFLite, model metadata)
+├── ei-v4/               # Edge Impulse model (TFLite, model metadata)
 ├── ble_dashboard.html   # Web Bluetooth dashboard for live testing
 ├── boards/              # Zephyr board overlays (nRF52 DK)
 ├── prj.conf             # Zephyr / Nordic config

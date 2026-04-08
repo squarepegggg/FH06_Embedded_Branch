@@ -1,11 +1,11 @@
-#ifndef GLUEV2_H_
-#define GLUEV2_H_
+#ifndef GLUEV4_H_
+#define GLUEV4_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int ei_v2_classify_test(const char **out_label, float *out_score);
+int ei_v4_classify_test(const char **out_label, float *out_score);
 extern float demo_data[75];
 
 extern const unsigned int ei_model_arena_size;

@@ -1,13 +1,10 @@
 /**
- * ei_glue_v2.cpp - C-callable wrapper for the ei-v4 Edge Impulse model
+ * ei_glue_v4.cpp - C-callable wrapper for the ei-v4 Edge Impulse model
  *
  * This file uses the ei-v4 model which expects 75 input features.
  * Input shape: (3, 25, 1) - 3 features, 25 time steps, 1 channel.
  * TensorFlow flattens this column-by-column (all of feature 0, then feature 1, then feature 2).
- * For testing, we use real demo data from the training set.
- *
- * NOTE: file/symbol names retain the "_v2" suffix from the previous EI export
- * to avoid churn across main.c, glueV2.h, and run_nn.c. The model itself is v4.
+ * Callers fill demo_data[75], then call ei_v4_classify_test() to get the top class.
  */
 
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
@@ -15,13 +12,15 @@
 #include "model-parameters/model_metadata.h"
 #include "tflite-model/tflite_learn_801862_25.h"
 #include <stdio.h>
+
 float demo_data[75] = {};
+
 extern "C" {
     extern const unsigned int ei_model_arena_size  = EI_CLASSIFIER_TFLITE_LARGEST_ARENA_SIZE;
     extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_25_len;
 }
 
-extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
+extern "C" int ei_v4_classify_test(const char **out_label, float *out_score)
 {
     // Copy demo data to mutable buffer (required by signal_from_buffer)
     static float features[75];
@@ -42,10 +41,11 @@ extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
     }
 
     for (int i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-    printf("class %d = %s (%.2f)\n", i, 
-           result.classification[i].label,
-           result.classification[i].value);
-    }   
+        printf("class %d = %s (%.2f)\n", i,
+               result.classification[i].label,
+               result.classification[i].value);
+    }
+
     // Find the top class
     size_t best_i = 0;
     float  best_v = result.classification[0].value;
