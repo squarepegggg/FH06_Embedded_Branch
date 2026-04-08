@@ -166,7 +166,7 @@
   <div class="legend-item"><div class="gesture">67</div><div class="arrow">▲ UP</div></div>
   <div class="legend-item"><div class="gesture">clap</div><div class="arrow">▼ DOWN</div></div>
   <div class="legend-item"><div class="gesture">dab</div><div class="arrow">◀ LEFT</div></div>
-  <div class="legend-item"><div class="gesture">roll</div><div class="arrow">▶ RIGHT</div></div>
+  <div class="legend-item"><div class="gesture">disco</div><div class="arrow">▶ RIGHT</div></div>
 </div>
 
 <div class="info-bar">
@@ -218,7 +218,7 @@ function onNotification(event) {
   if (label === 0)      { setDirection(0, -1); dirChanged = true; log('67 → UP', 'game'); }
   else if (label === 1) { setDirection(0,  1); dirChanged = true; log('clap → DOWN', 'game'); }
   else if (label === 2) { setDirection(-1, 0); dirChanged = true; log('dab → LEFT', 'game'); }
-  else if (label === 6) { setDirection(1,  0); dirChanged = true; log('roll → RIGHT', 'game'); }
+  else if (label === 3) { setDirection(1,  0); dirChanged = true; log('disco → RIGHT', 'game'); }
 
   document.getElementById('gestureStatus').className =
     'gesture-status' + (dirChanged ? ' active' : '');
@@ -247,7 +247,7 @@ async function connectBLE() {
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
 
     setConnected(true);
-    log('Connected — 67=up, clap=down, dab=left, roll=right', 'conn');
+    log('Connected — 67=up, clap=down, dab=left, disco=right', 'conn');
   } catch (err) {
     log(`Error: ${err.message}`, 'err');
   }
