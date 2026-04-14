@@ -7,11 +7,13 @@
 #include <string.h>
 
 int biggest_idx = 0;
+float biggest_score = 0.0f;
 
 void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 {
 	if (count < 25) {
 		biggest_idx = 0;
+		biggest_score = 0.0f;
 		return;
 	}
 
@@ -28,6 +30,7 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 
 	if (err != 0 || label == NULL) {
 		biggest_idx = 0;
+		biggest_score = 0.0f;
 		return;
 	}
 
@@ -41,4 +44,5 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 	else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
 	else if (strcmp(label, "waving") == 0)     biggest_idx = 5;
 	else biggest_idx = 0;
+	biggest_score = score;
 }

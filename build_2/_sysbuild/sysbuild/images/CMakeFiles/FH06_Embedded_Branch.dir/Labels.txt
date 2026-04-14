@@ -1,0 +1,13 @@
+# Target labels
+ FH06_Embedded_Branch
+# Source files and their labels
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch-complete.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-build.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-configure.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-download.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-install.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-mkdir.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-patch.rule
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-update.rule

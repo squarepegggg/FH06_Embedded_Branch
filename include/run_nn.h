@@ -13,6 +13,7 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count);
 
 /* Set by run_nn_infer: 0=downstairs, 1=jump, 2=running, 3=sitting, 4=standing, 5=upstairs, 6=walking */
 extern int biggest_idx;
+extern float biggest_score;
 
 #ifdef __cplusplus
 }
