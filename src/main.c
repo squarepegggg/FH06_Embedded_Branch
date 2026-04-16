@@ -628,84 +628,84 @@ void bma_int_handler(const struct device* dev, struct gpio_callback* cb, uint32_
 }
 
 void thread_read_bma400(void) {
- while (1) {
- k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
+    while (1) {
+        k_sem_take(&bma400_ready, K_FOREVER); // Sleep here if semaphore is at 0
 
- // Enable SPI
- const struct device* cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
- pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
+        // Enable SPI
+        const struct device* cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
+        pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
 
- // read data from bma400 fifo
- bma400_get_fifo_data(&fifo_frame, &bma_sensor);
- uint16_t accel_frames_req = FIFO_SAMPLES;
- bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
- // LOG_INF("Read FIFO Data, disabling BMA");
+        // read data from bma400 fifo
+        bma400_get_fifo_data(&fifo_frame, &bma_sensor);
+        uint16_t accel_frames_req = FIFO_SAMPLES;
+        bma400_extract_accel(&fifo_frame, accel_data, &accel_frames_req, &bma_sensor);
+        // LOG_INF("Read FIFO Data, disabling BMA");
 
- // after reading, disable the interrupt and put the bma400 to sleep
- int_en.type = BMA400_FIFO_WM_INT_EN;
- int_en.conf = BMA400_DISABLE;
- int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
- bma400_set_power_mode(BMA400_MODE_SLEEP, &bma_sensor);
+        // after reading, disable the interrupt and put the bma400 to sleep
+        int_en.type = BMA400_FIFO_WM_INT_EN;
+        int_en.conf = BMA400_DISABLE;
+        int8_t rslt = bma400_enable_interrupt(&int_en, 1, &bma_sensor);
+        bma400_set_power_mode(BMA400_MODE_SLEEP, &bma_sensor);
 
- // Disable SPI
- pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
+        // Disable SPI
+        pm_device_action_run(cons, PM_DEVICE_ACTION_SUSPEND);
 
- if (accel_frames_req == 0) {
- last_tx_done = true;
- continue;
- }
+        if (accel_frames_req == 0) {
+        last_tx_done = true;
+        continue;
+        }
 
- uint16_t sample_count = accel_frames_req;
- if (sample_count > FIFO_ACCEL_FRAME_COUNT) {
- sample_count = FIFO_ACCEL_FRAME_COUNT;
- }
+        uint16_t sample_count = accel_frames_req;
+        if (sample_count > FIFO_ACCEL_FRAME_COUNT) {
+        sample_count = FIFO_ACCEL_FRAME_COUNT;
+        }
 
- uint16_t prior_ring_count = nn_ring_count;
- for (uint16_t i = 0; i < sample_count; i++) {
- nn_ring_push_sample(&accel_data[i]);
- }
+        uint16_t prior_ring_count = nn_ring_count;
+        for (uint16_t i = 0; i < sample_count; i++) {
+        nn_ring_push_sample(&accel_data[i]);
+        }
 
- bool should_infer = false;
- if ((prior_ring_count < NN_WINDOW_SAMPLES) && (nn_ring_count == NN_WINDOW_SAMPLES)) {
- should_infer = true; // first full 25-sample window (about 1 s at 25 Hz)
- nn_samples_since_infer = 0;
- } else if (nn_ring_count == NN_WINDOW_SAMPLES) {
- nn_samples_since_infer += sample_count;
- if (nn_samples_since_infer >= NN_INFER_STRIDE_SAMPLES) {
- should_infer = true;
- nn_samples_since_infer = 0;
- }
- }
+        bool should_infer = false;
+        if ((prior_ring_count < NN_WINDOW_SAMPLES) && (nn_ring_count == NN_WINDOW_SAMPLES)) {
+        should_infer = true; // first full 25-sample window (about 1 s at 25 Hz)
+        nn_samples_since_infer = 0;
+        } else if (nn_ring_count == NN_WINDOW_SAMPLES) {
+        nn_samples_since_infer += sample_count;
+        if (nn_samples_since_infer >= NN_INFER_STRIDE_SAMPLES) {
+        should_infer = true;
+        nn_samples_since_infer = 0;
+        }
+    }
 
- if (!should_infer) {
- last_tx_done = true;
- continue;
- }
+    if (!should_infer) {
+        last_tx_done = true;
+        continue;
+    }
 
- nn_ring_copy_window(nn_window);
- run_nn_infer(nn_window, NN_WINDOW_SAMPLES);
+    nn_ring_copy_window(nn_window);
+    run_nn_infer(nn_window, NN_WINDOW_SAMPLES);
 
- bool class_changed = (biggest_idx != last_sent_pred);
- bool high_confidence = (biggest_score >= TX_CONFIDENCE_THRESHOLD);
- if (class_changed || high_confidence) {
- const struct bma400_fifo_sensor_data* latest = &nn_window[NN_WINDOW_SAMPLES - 1];
+    
 
- adv_mfg_data.pred = (uint8_t)biggest_idx;
- adv_mfg_data.x = latest->x;
- adv_mfg_data.y = latest->y;
- adv_mfg_data.z = latest->z;
- adv_mfg_data.voltage_mv = cached_voltage_mv;
+    bool class_changed = (biggest_idx != last_sent_pred);
+    bool high_confidence = (biggest_score >= TX_CONFIDENCE_THRESHOLD);
+    if (class_changed || high_confidence) {
+    const struct bma400_fifo_sensor_data* latest = &nn_window[NN_WINDOW_SAMPLES - 1];
 
- bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0); // update adv data
- bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), NULL, 0); // start advertising
- k_sleep(K_MSEC(18)); // wait at least one cycle
- bt_le_adv_stop(); // stop advertising
+    adv_mfg_data.pred = (uint8_t)biggest_idx;
+    adv_mfg_data.x = latest->x;
+    adv_mfg_data.y = latest->y;
+    adv_mfg_data.z = latest->z;
+    adv_mfg_data.voltage_mv = cached_voltage_mv;
 
- last_sent_pred = biggest_idx;
- }
-
- last_tx_done = true;
- }
+    bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0); // update adv data
+    bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), NULL, 0); // start advertising
+    k_sleep(K_MSEC(18)); // wait at least one cycle
+    bt_le_adv_stop(); // stop advertising
+    last_sent_pred = biggest_idx;
+    }
+    last_tx_done = true;
+    }
 }
 
 // Need to make sure stack is big enough to run NN code
