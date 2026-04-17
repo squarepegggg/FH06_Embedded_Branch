@@ -228,6 +228,15 @@ static struct gpio_callback int_cb_data;
 #define FIFO_SIZE (FIFO_FULL_SIZE + BMA400_FIFO_BYTES_OVERREAD)
 #define FIFO_ACCEL_FRAME_COUNT UINT8_C(FIFO_SAMPLES)
 
+// /* Sliding-window inference controls:
+//  * - Keep NN window fixed at 25 samples (model requirement).
+//  * - Infer every NN_INFER_STRIDE_SAMPLES new samples after warm-up.
+//  * Set to 25 for ~1.0 s cadence at 25 Hz (old behavior).
+//  */
+// #define NN_WINDOW_SAMPLES 25
+// #define NN_INFER_STRIDE_SAMPLES 25
+// #define TX_CONFIDENCE_THRESHOLD 0.10f
+
 BMA400_INTF_RET_TYPE read_reg_spi(uint8_t reg_address, uint8_t* data, uint32_t len, void* intf_ptr);
 BMA400_INTF_RET_TYPE write_reg_spi(uint8_t reg_address, const uint8_t* data, uint32_t len,
                                    void* intf_ptr);
@@ -317,7 +326,7 @@ void thread_read_bma400(void) {
                 demo_data[ml_idx + 25] = accel_data[i].z;
                 ml_idx++;
             }
-            // buffer is fill, start sliding
+            //buffer is fill, start sliding
             else {
                 memmove(&demo_data[0], &demo_data[1], 24 * sizeof(float));
                 demo_data[24] = (float)accel_data[i].x;
@@ -612,9 +621,10 @@ int main(void) {
     bma400_init(&bma_sensor);
     printk("BMA400 init done\n");
 
-    // init_activity();
+    //init_activity();
 
     init_fifo_watermark(); // interupts for fifo buffers
+
     //	init_read_lp();	// THIS IS INTERRUPTS EVERY TIME THERE IS DATA READY
 
     while (1) {

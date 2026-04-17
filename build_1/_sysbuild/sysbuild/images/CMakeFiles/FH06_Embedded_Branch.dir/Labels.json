@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/CMakeFiles/FH06_Embedded_Branch-complete.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-build.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-configure.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-download.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-install.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-mkdir.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-patch.rule"
+		},
+		{
+			"file" : "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_1/_sysbuild/sysbuild/images/FH06_Embedded_Branch-prefix/src/FH06_Embedded_Branch-stamp/FH06_Embedded_Branch-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"FH06_Embedded_Branch"
+		],
+		"name" : "FH06_Embedded_Branch"
+	}
+}
