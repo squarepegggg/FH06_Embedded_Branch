@@ -1,0 +1,10 @@
+{
+  "disabledMcpjsonServers": [
+    "supabase"
+  ],
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/ronak/FH06_Embedded_Branch/**)"
+    ]
+  }
+}
