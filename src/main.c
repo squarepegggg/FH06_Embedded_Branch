@@ -11,7 +11,7 @@
 // Basic Libs
 #include "bma400.h"
 #include "bma400_defs.h"
-#include "glueV4.h"
+#include "glueV5.h"
 #include <errno.h>
 #include <string.h>
 #include <time.h>
@@ -36,7 +36,7 @@
 //																		//
 //////////////////////////////////////////////////////////////////////////
 
-int ei_v4_classify_test(const char** out_label, float* out_score);
+int ei_v5_classify_test(const char** out_label, float* out_score);
 
 //////////////////////////////////////////////////////////////////////////
 //																		//
@@ -342,7 +342,7 @@ void thread_read_bma400(void) {
                 float predictedScore = 0.0f;
                 printk("preinfernece\n");
                 uint32_t start_cyc = k_cycle_get_32();
-                int inferenceResult = ei_v4_classify_test(&predictedLabel, &predictedScore);
+                int inferenceResult = ei_v5_classify_test(&predictedLabel, &predictedScore);
                 uint32_t end_cyc = k_cycle_get_32();
                 uint32_t delta_cyc = end_cyc - start_cyc;
                 uint32_t latency_us = (uint32_t)((uint64_t)delta_cyc * 1000000ULL /
@@ -353,7 +353,7 @@ void thread_read_bma400(void) {
                            (int)predictedScore,
                            (int)((predictedScore - (int)predictedScore) * 100));
 
-                    /* ei-v4: 8 dance classes. EI Studio orders class labels alphabetically,
+                    /* ei-v5: 5 dance classes. EI Studio orders class labels alphabetically,
                      * so the order is: 67, clap, dab, disco, floss, griddy, roll, wave. */
                     uint8_t result_to_send = 0xFF;
                     if (strcmp(predictedLabel, "class 1") == 0)
