@@ -8,12 +8,13 @@ from pathlib import Path
 
 print("TensorFlow:", tf.__version__)
 
-# Fixed set of classes (Matthew: all 6, Ronak: 5, Nikhil & Andres: 2 each)
-CLASSES = ["idle", "jump", "sixseven", "spinning", "walking", "waving"]
+# Fixed set of classes to train on
+INCLUDE_LABELS = {"67", "disco", "dab", "floss", "idle"}
+CLASSES = sorted(INCLUDE_LABELS)
 NUM_CLASSES = len(CLASSES)
 
 # Optional: map legacy/alternate labels into our class set (e.g. standing -> idle)
-LABEL_ALIASES = {"standing": "idle"}
+LABEL_ALIASES = {"standing": "idle", "sixseven": "67"}
 
 # Load CSV files and extract labels from filenames (only files matching CLASSES)
 def load_csv_data(csv_dir=None):
@@ -25,13 +26,18 @@ def load_csv_data(csv_dir=None):
     all_labels = []
 
     for csv_file in csv_files:
-        filename = Path(csv_file).stem  # e.g. "Matthew_jump", "Ronak_idle"
-        if "_" not in filename:
+        filename = Path(csv_file).stem  # e.g. "Matthew_jump", "Ronak idle", "Matthew 67"
+        # Support both "_" and " " as the separator between name and activity
+        if "_" in filename:
+            label = filename.split("_", 1)[1]
+        elif " " in filename:
+            label = filename.split(" ", 1)[1]
+        else:
             continue
-        label = filename.split("_", 1)[1].strip().lower()
-        # Map aliases (e.g. standing -> idle) so we can use Nikhil_standing etc.
+        label = label.strip().lower()
+        # Map aliases (e.g. standing -> idle, sixseven -> 67)
         label = LABEL_ALIASES.get(label, label)
-        if label not in CLASSES:
+        if label not in INCLUDE_LABELS:
             continue
 
         df = pd.read_csv(csv_file)
