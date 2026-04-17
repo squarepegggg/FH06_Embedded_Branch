@@ -20,7 +20,7 @@ LABEL_ALIASES = {"standing": "idle", "sixseven": "67"}
 def load_csv_data(csv_dir=None):
     """Load CSV files from csv_dir; only include files whose activity is in CLASSES."""
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(__file__), "Data")
+        csv_dir = os.path.dirname(__file__)
     csv_files = glob.glob(os.path.join(csv_dir, "*.csv"))
     all_data = []
     all_labels = []

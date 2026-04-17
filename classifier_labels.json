@@ -1,11 +1,10 @@
 {
   "labels": [
-    "idle",
-    "jump",
-    "sixseven",
-    "spinning",
-    "walking",
-    "waving"
+    "67",
+    "dab",
+    "disco",
+    "floss",
+    "idle"
   ],
-  "num_classes": 6
+  "num_classes": 5
 }
