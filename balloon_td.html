@@ -145,10 +145,10 @@ const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 // NOTE: gameplay below was designed around v2 (idle/walking/sixseven). The label
 // constants used by handleGesture (BROWSE_LABEL, MOVE_LABEL, PLACE_LABEL) are now
 // reassigned to v5 dances — pick whichever feels right.
-const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
-const BROWSE_LABEL = 1;  // clap   — was idle
-const MOVE_LABEL   = 7;  // wave   — was walking
-const PLACE_LABEL  = 0;  // 67     — was sixseven
+const ACTIVITIES = ['67', 'dab', 'disco', 'floss', 'idle'];
+const BROWSE_LABEL = 1;  // dab
+const MOVE_LABEL   = 3;  // floss
+const PLACE_LABEL  = 0;  // 67
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 let device = null;
@@ -166,7 +166,7 @@ function onNotification(event) {
   if (value.byteLength < 17) return;
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
+  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
   if (isPrediction) handleGesture(label);
 }
 
@@ -184,7 +184,7 @@ async function connectBLE() {
     await characteristic.startNotifications();
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
     setConnected(true);
-    log('Connected! Wave to move, clap to browse, "67" to place.', 'conn');
+    log('Connected! Floss to move, dab to browse, "67" to place.', 'conn');
   } catch (err) { log(`Error: ${err.message}`, 'err'); }
 }
 

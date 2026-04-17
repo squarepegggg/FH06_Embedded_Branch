@@ -164,7 +164,7 @@
 
 <div class="controls-legend">
   <div class="legend-item"><div class="gesture">67</div><div class="arrow">▲ UP</div></div>
-  <div class="legend-item"><div class="gesture">clap</div><div class="arrow">▼ DOWN</div></div>
+  <div class="legend-item"><div class="gesture">floss</div><div class="arrow">▼ DOWN</div></div>
   <div class="legend-item"><div class="gesture">dab</div><div class="arrow">◀ LEFT</div></div>
   <div class="legend-item"><div class="gesture">disco</div><div class="arrow">▶ RIGHT</div></div>
 </div>
@@ -186,7 +186,7 @@ const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 
 // ei-v5: dance classes, alphabetical order from EI Studio (digits before letters).
-const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
+const ACTIVITIES = ['67', 'dab', 'disco', 'floss', 'idle'];
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 let device = null;
@@ -207,7 +207,7 @@ function onNotification(event) {
 
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
+  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
 
   if (!isPrediction) return;
 
@@ -216,9 +216,9 @@ function onNotification(event) {
 
   let dirChanged = false;
   if (label === 0)      { setDirection(0, -1); dirChanged = true; log('67 → UP', 'game'); }
-  else if (label === 1) { setDirection(0,  1); dirChanged = true; log('clap → DOWN', 'game'); }
-  else if (label === 2) { setDirection(-1, 0); dirChanged = true; log('dab → LEFT', 'game'); }
-  else if (label === 3) { setDirection(1,  0); dirChanged = true; log('disco → RIGHT', 'game'); }
+  else if (label === 3) { setDirection(0,  1); dirChanged = true; log('floss → DOWN', 'game'); }
+  else if (label === 1) { setDirection(-1, 0); dirChanged = true; log('dab → LEFT', 'game'); }
+  else if (label === 2) { setDirection(1,  0); dirChanged = true; log('disco → RIGHT', 'game'); }
 
   document.getElementById('gestureStatus').className =
     'gesture-status' + (dirChanged ? ' active' : '');
@@ -247,7 +247,7 @@ async function connectBLE() {
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
 
     setConnected(true);
-    log('Connected — 67=up, clap=down, dab=left, disco=right', 'conn');
+    log('Connected — 67=up, floss=down, dab=left, disco=right', 'conn');
   } catch (err) {
     log(`Error: ${err.message}`, 'err');
   }

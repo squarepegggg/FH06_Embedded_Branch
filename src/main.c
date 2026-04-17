@@ -354,24 +354,18 @@ void thread_read_bma400(void) {
                            (int)((predictedScore - (int)predictedScore) * 100));
 
                     /* ei-v5: 5 dance classes. EI Studio orders class labels alphabetically,
-                     * so the order is: 67, clap, dab, disco, floss, griddy, roll, wave. */
+                     * so the order is: 67, dab, disco, floss, idle. */
                     uint8_t result_to_send = 0xFF;
                     if (strcmp(predictedLabel, "class 1") == 0)
-                        result_to_send = 0;  /* 67     */
+                        result_to_send = 0;  /* 67    */
                     else if (strcmp(predictedLabel, "class 2") == 0)
-                        result_to_send = 1;  /* clap   */
+                        result_to_send = 1;  /* dab   */
                     else if (strcmp(predictedLabel, "class 3") == 0)
-                        result_to_send = 2;  /* dab    */
+                        result_to_send = 2;  /* disco */
                     else if (strcmp(predictedLabel, "class 4") == 0)
-                        result_to_send = 3;  /* disco  */
+                        result_to_send = 3;  /* floss */
                     else if (strcmp(predictedLabel, "class 5") == 0)
-                        result_to_send = 4;  /* floss  */
-                    else if (strcmp(predictedLabel, "class 6") == 0)
-                        result_to_send = 5;  /* griddy */
-                    else if (strcmp(predictedLabel, "class 7") == 0)
-                        result_to_send = 6;  /* roll   */
-                    else if (strcmp(predictedLabel, "class 8") == 0)
-                        result_to_send = 7;  /* wave   */
+                        result_to_send = 4;  /* idle  */
                     /* Send one notification with the fresh ML label */
                     printk("result: %d\n", result_to_send);
                     cached_label = result_to_send;

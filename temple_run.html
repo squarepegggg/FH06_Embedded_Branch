@@ -163,7 +163,7 @@
 
 <div class="controls-legend">
   <div class="legend-item"><div class="gesture">67</div><div class="arrow">▲ JUMP</div></div>
-  <div class="legend-item"><div class="gesture">clap</div><div class="arrow">▼ SLIDE</div></div>
+  <div class="legend-item"><div class="gesture">dab</div><div class="arrow">▼ SLIDE</div></div>
   <div class="legend-item"><div class="gesture">floss</div><div class="arrow">◀ LEFT</div></div>
   <div class="legend-item"><div class="gesture">disco</div><div class="arrow">▶ RIGHT</div></div>
 </div>
@@ -185,7 +185,7 @@ const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 
 // ei-v5: dance classes, alphabetical order from EI Studio (digits before letters).
-const ACTIVITIES = ['67', 'clap', 'dab', 'disco', 'floss', 'griddy', 'roll', 'wave'];
+const ACTIVITIES = ['67', 'dab', 'disco', 'floss', 'idle'];
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 let device = null;
@@ -212,7 +212,7 @@ function onNotification(event) {
 
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label <= 7 && inferenceUs !== LATENCY_SENTINEL;
+  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
 
   if (!isPrediction) return;
 
@@ -224,10 +224,10 @@ function onNotification(event) {
   if (voteBuffer.length < VOTE_WINDOW) return;
 
   // Tally and pick the majority
-  const counts = new Array(8).fill(0);
+  const counts = new Array(ACTIVITIES.length).fill(0);
   for (const l of voteBuffer) counts[l]++;
   let winner = 0;
-  for (let i = 1; i < 8; i++) if (counts[i] > counts[winner]) winner = i;
+  for (let i = 1; i < ACTIVITIES.length; i++) if (counts[i] > counts[winner]) winner = i;
   voteBuffer = [];
 
   const winnerName = ACTIVITIES[winner] || 'unknown';
@@ -235,9 +235,9 @@ function onNotification(event) {
 
   let acted = false;
   if (winner === 0)      { triggerJump();   acted = true; log(`67 (${counts[0]}/${VOTE_WINDOW}) → JUMP`, 'game'); }
-  else if (winner === 1) { triggerSlide();  acted = true; log(`clap (${counts[1]}/${VOTE_WINDOW}) → SLIDE`, 'game'); }
-  else if (winner === 4) { moveLane(-1);    acted = true; log(`floss (${counts[4]}/${VOTE_WINDOW}) → LEFT`, 'game'); }
-  else if (winner === 3) { moveLane(1);     acted = true; log(`disco (${counts[3]}/${VOTE_WINDOW}) → RIGHT`, 'game'); }
+  else if (winner === 1) { triggerSlide();  acted = true; log(`dab (${counts[1]}/${VOTE_WINDOW}) → SLIDE`, 'game'); }
+  else if (winner === 3) { moveLane(-1);    acted = true; log(`floss (${counts[3]}/${VOTE_WINDOW}) → LEFT`, 'game'); }
+  else if (winner === 2) { moveLane(1);     acted = true; log(`disco (${counts[2]}/${VOTE_WINDOW}) → RIGHT`, 'game'); }
 
   document.getElementById('gestureStatus').className =
     'gesture-status' + (acted ? ' active' : '');
@@ -266,7 +266,7 @@ async function connectBLE() {
     characteristic.addEventListener('characteristicvaluechanged', onNotification);
 
     setConnected(true);
-    log('Connected — 67=jump, clap=slide, floss=left, disco=right', 'conn');
+    log('Connected — 67=jump, dab=slide, floss=left, disco=right', 'conn');
   } catch (err) {
     log(`Error: ${err.message}`, 'err');
   }
