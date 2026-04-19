@@ -31,13 +31,11 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 		return;
 	}
 
-	/* Map EI labels to index 0-6 */
-	if (strcmp(label, "downstairs") == 0) biggest_idx = 0;
-	else if (strcmp(label, "jump") == 0)       biggest_idx = 1;
-	else if (strcmp(label, "running") == 0)    biggest_idx = 2;
-	else if (strcmp(label, "sitting") == 0)    biggest_idx = 3;
-	else if (strcmp(label, "standing") == 0)   biggest_idx = 4;
-	else if (strcmp(label, "upstairs") == 0)   biggest_idx = 5;
-	else if (strcmp(label, "walking") == 0)    biggest_idx = 6;
+	/* Map EI labels to index 0-4 (matches ML/model.py CLASSES) */
+	if (strcmp(label, "idle") == 0)            biggest_idx = 0;
+	else if (strcmp(label, "clap") == 0)       biggest_idx = 1;
+	else if (strcmp(label, "sixseven") == 0)   biggest_idx = 2;
+	else if (strcmp(label, "spinning") == 0)   biggest_idx = 3;
+	else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
 	else biggest_idx = 0;
 }
