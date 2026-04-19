@@ -1,0 +1,2 @@
+osource "/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/shields/*/Kconfig.defconfig"
+osource "/opt/nordic/ncs/v3.2.3/nrf/boards/shields/*/Kconfig.defconfig"

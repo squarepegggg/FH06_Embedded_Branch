@@ -1,0 +1,57 @@
+cmake:
+  application:
+    configuration-dir: '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch'
+    source-dir: '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch'
+  board:
+    name: 'nrf52dk'
+    path:
+     - '/opt/nordic/ncs/v3.2.3/zephyr/boards/nordic/nrf52dk'
+    qualifiers: 'nrf52832'
+    revision: ''
+  devicetree:
+    bindings-dirs:
+     - '/opt/nordic/ncs/v3.2.3/nrf/dts/bindings'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/bindings'
+    files:
+     - '/opt/nordic/ncs/v3.2.3/zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832.dts'
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay'
+    include-dirs:
+     - '/opt/nordic/ncs/v3.2.3/nrf/include'
+     - '/opt/nordic/ncs/v3.2.3/nrf/dts/common'
+     - '/opt/nordic/ncs/v3.2.3/nrf/dts/riscv'
+     - '/opt/nordic/ncs/v3.2.3/nrf/dts/arm'
+     - '/opt/nordic/ncs/v3.2.3/nrf/dts'
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/include'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/include'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/include/zephyr'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/common'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/vendor'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/rx'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/x86'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/xtensa'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/sparc'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/riscv'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/posix'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/arm64'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/arm'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts/arc'
+     - '/opt/nordic/ncs/v3.2.3/zephyr/dts'
+    user-files:
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay'
+  kconfig:
+    files:
+     - '/opt/nordic/ncs/v3.2.3/zephyr/boards/nordic/nrf52dk/nrf52dk_nrf52832_defconfig'
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/prj.conf'
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/zephyr/.config.sysbuild'
+    user-files:
+     - '/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/prj.conf'
+  toolchain:
+    name: 'zephyr'
+    path: '/opt/nordic/ncs/toolchains/185bb0e3b6/opt/zephyr-sdk'
+  vendor-specific:
+    nordic:
+      svdfile: '/opt/nordic/ncs/v3.2.3/modules/hal/nordic/nrfx/bsp/stable/mdk/nrf52.svd'
+  zephyr:
+    version: '4.2.99'
+    zephyr-base: '/opt/nordic/ncs/v3.2.3/zephyr'
+version: '0.1.0'
