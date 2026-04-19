@@ -9,7 +9,7 @@ from pathlib import Path
 print("TensorFlow:", tf.__version__)
 
 # Fixed set of classes (Matthew: all 6, Ronak: 5, Nikhil & Andres: 2 each)
-CLASSES = ["idle", "jump", "sixseven", "spinning", "walking", "waving"]
+CLASSES = ["idle", "clap", "sixseven", "spinning", "walking"]
 NUM_CLASSES = len(CLASSES)
 
 # Optional: map legacy/alternate labels into our class set (e.g. standing -> idle)
@@ -18,17 +18,28 @@ LABEL_ALIASES = {"standing": "idle"}
 # Load CSV files and extract labels from filenames (only files matching CLASSES)
 def load_csv_data(csv_dir=None):
     """Load CSV files from csv_dir; only include files whose activity is in CLASSES."""
+    script_dir = os.path.dirname(__file__)
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(__file__), "Data")
-    csv_files = glob.glob(os.path.join(csv_dir, "*.csv"))
+        search_dirs = [
+            os.path.join(script_dir, "Data"),
+            script_dir,
+            os.path.dirname(script_dir),  # repo root
+        ]
+    else:
+        search_dirs = [csv_dir]
+    csv_files = []
+    for d in search_dirs:
+        csv_files.extend(glob.glob(os.path.join(d, "*.csv")))
     all_data = []
     all_labels = []
 
     for csv_file in csv_files:
-        filename = Path(csv_file).stem  # e.g. "Matthew_jump", "Ronak_idle"
-        if "_" not in filename:
+        filename = Path(csv_file).stem  # e.g. "Matthew_clap", "Ronak idle"
+        # Accept either "Name_label" or "Name label" as separators
+        parts = filename.replace("_", " ").split(" ", 1)
+        if len(parts) < 2:
             continue
-        label = filename.split("_", 1)[1].strip().lower()
+        label = parts[1].strip().lower()
         # Map aliases (e.g. standing -> idle) so we can use Nikhil_standing etc.
         label = LABEL_ALIASES.get(label, label)
         if label not in CLASSES:

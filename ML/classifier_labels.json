@@ -1,0 +1,10 @@
+{
+  "labels": [
+    "idle",
+    "clap",
+    "sixseven",
+    "spinning",
+    "walking"
+  ],
+  "num_classes": 5
+}
