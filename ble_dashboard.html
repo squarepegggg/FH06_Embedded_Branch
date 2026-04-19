@@ -367,22 +367,19 @@ const SERVICE_UUID  = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID     = '12345679-1234-5678-1234-1234567890ab';
 
 // ── Activity definitions ────────────────────────────────────
-// ei-v4: 8 dance classes ordered alphabetically by EI Studio (digits before letters).
+// ei-v5: 5 dance classes
 const ACTIVITIES = [
-  { id: 0, name: '67',     icon: '⁶🤷⁷', color: '#ef4444' },
-  { id: 1, name: 'clap',   icon: '👏',   color: '#f97316' },
-  { id: 2, name: 'dab',    icon: '🙆',   color: '#eab308' },
-  { id: 3, name: 'disco',  icon: '🕺',   color: '#22c55e' },
-  { id: 4, name: 'floss',  icon: '🦷',   color: '#14b8a6' },
-  { id: 5, name: 'griddy', icon: '🏈',   color: '#3b82f6' },
-  { id: 6, name: 'roll',   icon: '🌀',   color: '#8b5cf6' },
-  { id: 7, name: 'wave',   icon: '👋',   color: '#ec4899' },
+  { id: 0, name: 'clap',      icon: '👏',  color: '#ef4444' },
+  { id: 1, name: 'idle',      icon: '😴',  color: '#14b8a6' },
+  { id: 2, name: 'roll',      icon: '🔄',  color: '#f97316' },
+  { id: 3, name: 'six_seven', icon: '⁶⁷', color: '#8b5cf6' },
+  { id: 4, name: 'wave',      icon: '👋',  color: '#22c55e' },
 ];
 
 // ── State ───────────────────────────────────────────────────
 let device = null;
 let characteristic = null;
-const counts = new Array(8).fill(0);
+const counts = new Array(5).fill(0);
 let totalPredictions = 0;
 let warnedLegacyPacket = false;
 const accelHistory = { x: [], y: [], z: [] };
