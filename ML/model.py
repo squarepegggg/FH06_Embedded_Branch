@@ -9,7 +9,7 @@ from pathlib import Path
 print("TensorFlow:", tf.__version__)
 
 # Fixed set of classes (Matthew: all 6, Ronak: 5, Nikhil & Andres: 2 each)
-CLASSES = ["idle", "clap", "sixseven", "spinning", "walking"]
+CLASSES = ["idle", "clap", "sixseven", "floss", "walking"]
 NUM_CLASSES = len(CLASSES)
 
 # Optional: map legacy/alternate labels into our class set (e.g. standing -> idle)
