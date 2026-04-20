@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simon Says – BLE Gesture Game</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --muted: #8b8fa3;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; text-align: center; }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-bottom: 16px;
+    width: 100%;
+    max-width: 640px;
+    flex-wrap: wrap;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+  .status-text { flex: 1; font-size: 0.9rem; color: var(--muted); min-width: 140px; }
+  .status-text.connected { color: var(--green); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .voice-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  select {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+
+  .scoreboard {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat-label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; font-family: 'Consolas', monospace; margin-top: 4px; }
+  .stat-value.streak { color: var(--yellow); }
+  .stat-value.best { color: var(--green); }
+
+  .stage {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 640px;
+    padding: 28px 20px;
+    margin-bottom: 16px;
+    text-align: center;
+    transition: border-color 0.25s, background 0.25s;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  .stage.announcing { border-color: var(--accent); }
+  .stage.reacting   { border-color: var(--yellow); }
+  .stage.win        { border-color: var(--green);  background: rgba(34,197,94,0.08); }
+  .stage.lose       { border-color: var(--red);    background: rgba(239,68,68,0.08); }
+
+  .avatar { font-size: 4.2rem; line-height: 1; margin-bottom: 12px; transition: transform 0.2s; }
+  .avatar.pulse { animation: pulse 0.6s ease; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.15); }
+  }
+
+  .caption {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+    min-height: 1.6em;
+    line-height: 1.3;
+  }
+  .caption .hl { color: var(--yellow); }
+  .caption .neg { color: var(--red); text-decoration: underline; }
+  .hint { color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
+
+  .timer-track {
+    width: 100%;
+    max-width: 420px;
+    height: 8px;
+    background: #161922;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 18px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .timer-track.active { opacity: 1; }
+  .timer-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--yellow), var(--red));
+    width: 100%;
+    transform-origin: left;
+  }
+
+  .menu-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+  button.primary-big {
+    background: var(--accent);
+    padding: 12px 28px;
+    font-size: 1rem;
+  }
+
+  .leaderboard {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+  .leaderboard h3 { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .lb-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 0.85rem;
+    font-family: 'Consolas', monospace;
+  }
+  .lb-row.empty { color: var(--muted); font-style: italic; }
+  .lb-rank { color: var(--muted); }
+  .lb-score { color: var(--yellow); font-weight: 700; }
+
+  .log {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 10px 14px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .log .entry { display: flex; gap: 10px; }
+  .log .ts { color: #555; flex-shrink: 0; }
+  .log .msg.conn { color: var(--green); }
+  .log .msg.err  { color: var(--red); }
+  .log .msg.game { color: var(--accent); }
+  .log .msg.win  { color: var(--green); }
+  .log .msg.lose { color: var(--red); }
+</style>
+</head>
+<body>
+
+<h1>🗣️ Simon Says</h1>
+<p class="subtitle">
+  Do what Simon says — but <b>only</b> when Simon says to.<br>
+  Gestures: 👏 clap · ⁶🤷⁷ 6-7 · 🕺 floss · 🚶 walking
+</p>
+
+<!-- Connection -->
+<div class="conn-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Disconnected</span>
+  <button id="btnConnect" onclick="connectBLE()">Connect</button>
+  <button id="btnDisconnect" class="secondary" onclick="disconnectBLE()" disabled>Disconnect</button>
+</div>
+
+<!-- Voice picker -->
+<div class="voice-bar">
+  <span>Simon's voice:</span>
+  <select id="voiceSelect"></select>
+</div>
+
+<!-- Scoreboard -->
+<div class="scoreboard">
+  <div class="stat">
+    <div class="stat-label">Score</div>
+    <div class="stat-value" id="score">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Streak</div>
+    <div class="stat-value streak" id="streak">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Best</div>
+    <div class="stat-value best" id="best">0</div>
+  </div>
+</div>
+
+<!-- Stage -->
+<div class="stage" id="stage">
+  <div class="avatar" id="avatar">🎮</div>
+  <div class="caption" id="caption">Ready to play?</div>
+  <div class="hint" id="hint">Connect your device, then press Start.</div>
+  <div class="timer-track" id="timerTrack"><div class="timer-fill" id="timerFill"></div></div>
+  <div class="menu-actions" id="menuActions">
+    <button class="primary-big" id="btnStart" onclick="startGame()">Start Game</button>
+  </div>
+</div>
+
+<!-- Leaderboard -->
+<div class="leaderboard">
+  <h3>🏆 Top 5 Scores</h3>
+  <div id="leaderboardList"></div>
+</div>
+
+<!-- Log -->
+<div class="log" id="log"></div>
+
+<script>
+// ── BLE (same as dashboard / dino) ─────────────────────────
+const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
+const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+// model.py CLASSES order — matches labels sent by firmware
+const ACTIVITIES = ['idle', 'clap', 'sixseven', 'floss', 'walking'];
+const GESTURES   = ['clap', 'sixseven', 'floss', 'walking']; // playable (idle is guard state)
+
+let device = null;
+let characteristic = null;
+
+// ── Logging ────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── BLE notification handler ───────────────────────────────
+function onNotification(event) {
+  const value = event.target.value;
+  if (value.byteLength < 17) return;
+
+  const label       = value.getUint8(0);
+  const inferenceUs = value.getUint32(7, true);
+  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
+  if (!isPrediction) return;
+
+  handlePrediction(label);
+}
+
+async function connectBLE() {
+  try {
+    log('Scanning for AccelDevice…', 'conn');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AccelDevice' }],
+      optionalServices: [SERVICE_UUID],
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      setConnected(false);
+      log('Device disconnected', 'err');
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+
+    setConnected(true);
+    log('Connected — press Start to play!', 'conn');
+  } catch (err) {
+    log(`Error: ${err.message}`, 'err');
+  }
+}
+
+function disconnectBLE() {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  setConnected(false);
+}
+
+function setConnected(connected) {
+  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+  const st = document.getElementById('statusText');
+  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.className = 'status-text' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').disabled = connected;
+  document.getElementById('btnDisconnect').disabled = !connected;
+}
+
+// ── Text-to-speech (Simon's voice) ─────────────────────────
+let selectedVoice = null;
+
+function populateVoices() {
+  const voices = speechSynthesis.getVoices();
+  const sel = document.getElementById('voiceSelect');
+  sel.innerHTML = '';
+
+  // Prefer English voices, surface the good neural ones first
+  const english = voices.filter(v => v.lang && v.lang.startsWith('en'));
+  const rank = (v) => {
+    const n = (v.name || '').toLowerCase();
+    if (n.includes('natural') || n.includes('neural')) return 0;
+    if (n.includes('google')) return 1;
+    if (n.includes('microsoft')) return 2;
+    return 3;
+  };
+  english.sort((a, b) => rank(a) - rank(b));
+  const list = english.length ? english : voices;
+
+  list.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = `${v.name} (${v.lang})`;
+    sel.appendChild(opt);
+  });
+
+  // Restore saved preference or use first
+  const saved = localStorage.getItem('simonVoice');
+  if (saved && list.some(v => v.name === saved)) {
+    sel.value = saved;
+    selectedVoice = list.find(v => v.name === saved);
+  } else if (list.length) {
+    selectedVoice = list[0];
+    sel.value = list[0].name;
+  }
+
+  sel.onchange = () => {
+    selectedVoice = list.find(v => v.name === sel.value) || null;
+    if (selectedVoice) localStorage.setItem('simonVoice', selectedVoice.name);
+  };
+}
+
+if ('speechSynthesis' in window) {
+  populateVoices();
+  speechSynthesis.onvoiceschanged = populateVoices;
+} else {
+  log('Browser has no speech synthesis — Simon will be silent.', 'err');
+}
+
+function speak(text, rate = 1.0) {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) { setTimeout(resolve, 900); return; }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = rate;
+    u.pitch = 1.0;
+    if (selectedVoice) u.voice = selectedVoice;
+    u.onend   = () => resolve();
+    u.onerror = () => resolve();
+    speechSynthesis.speak(u);
+  });
+}
+
+// ── Game state ─────────────────────────────────────────────
+const STATE = { MENU: 'menu', ANNOUNCING: 'announcing', REACTING: 'reacting', FEEDBACK: 'feedback', GAMEOVER: 'gameover' };
+let state = STATE.MENU;
+let score = 0;
+let streak = 0;
+let best = Number(localStorage.getItem('simonBest') || 0);
+let reactionWindow = null;      // { round, resolve, startedAt, totalMs }
+let reactionTimer = null;
+document.getElementById('best').textContent = best;
+
+// ── Round construction ────────────────────────────────────
+// Types get harder as streak grows:
+//   streak <  2: always simon_do
+//   streak <  4: +trap (no-Simon-says)
+//   streak <  6: +simon_dont (negative)
+//   streak >= 6: +retract (fakeout)
+function buildRound(streak) {
+  const g = GESTURES[Math.floor(Math.random() * GESTURES.length)];
+  let type;
+  const r = Math.random();
+  if      (streak < 2) type = 'simon_do';
+  else if (streak < 4) type = r < 0.7 ? 'simon_do' : 'trap';
+  else if (streak < 6) type = r < 0.55 ? 'simon_do' : r < 0.8  ? 'trap' : 'simon_dont';
+  else                 type = r < 0.40 ? 'simon_do' : r < 0.65 ? 'trap' : r < 0.85 ? 'simon_dont' : 'retract';
+
+  const say = (n) => (n === 'sixseven' ? 'six seven' : n);
+  const show = (n) => (n === 'sixseven' ? '6-7' : n);
+
+  switch (type) {
+    case 'simon_do':
+      return {
+        type,
+        spoken: `Simon says ${say(g)}`,
+        captionHTML: `"Simon says <span class="hl">${show(g)}</span>"`,
+        correct: g,
+      };
+    case 'trap':
+      return {
+        type,
+        spoken: say(g),
+        captionHTML: `"<span class="hl">${show(g)}</span>" <span class="neg">(no &quot;Simon says&quot;!)</span>`,
+        correct: 'idle',
+      };
+    case 'simon_dont':
+      return {
+        type,
+        spoken: `Simon says don't ${say(g)}`,
+        captionHTML: `"Simon says <span class="neg">DON'T</span> <span class="hl">${show(g)}</span>"`,
+        correct: 'idle',
+      };
+    case 'retract': {
+      const others = GESTURES.filter(x => x !== g);
+      const target = others[Math.floor(Math.random() * others.length)];
+      return {
+        type,
+        spoken: `Simon says ${say(g)}... nope, ${say(target)}`,
+        captionHTML: `"Simon says ${show(g)}... <span class="neg">nope,</span> <span class="hl">${show(target)}</span>"`,
+        correct: target,
+      };
+    }
+  }
+}
+
+// Reaction window shrinks and speech rate climbs as streak grows
+function reactionMsFor(streak) { return Math.max(1500, 4000 - streak * 180); }
+function speechRateFor(streak) { return Math.min(1.55, 1.0 + streak * 0.035); }
+
+// ── Reaction window ───────────────────────────────────────
+function openReactionWindow(round, totalMs) {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    reactionWindow = { round, resolve, startedAt, totalMs };
+
+    // Animate timer bar via CSS transform
+    const fill = document.getElementById('timerFill');
+    fill.style.transition = 'none';
+    fill.style.transform = 'scaleX(1)';
+    document.getElementById('timerTrack').classList.add('active');
+    requestAnimationFrame(() => {
+      fill.style.transition = `transform ${totalMs}ms linear`;
+      fill.style.transform  = 'scaleX(0)';
+    });
+
+    reactionTimer = setTimeout(() => {
+      if (!reactionWindow) return;
+      const r = reactionWindow; reactionWindow = null;
+      // Time's up
+      if (r.round.correct === 'idle') {
+        resolve({ ok: true, remainingMs: 0 });    // held idle through the window
+      } else {
+        resolve({ ok: false, reason: 'timeout' });
+      }
+    }, totalMs);
+  });
+}
+
+function closeReactionWindow() {
+  document.getElementById('timerTrack').classList.remove('active');
+  if (reactionTimer) { clearTimeout(reactionTimer); reactionTimer = null; }
+}
+
+function handlePrediction(labelIdx) {
+  if (!reactionWindow) return;
+  const name = ACTIVITIES[labelIdx];
+  const { round, resolve, startedAt, totalMs } = reactionWindow;
+  const remaining = totalMs - (performance.now() - startedAt);
+
+  if (round.correct === 'idle') {
+    // Must NOT move — any active gesture loses immediately
+    if (labelIdx !== 0) {
+      reactionWindow = null; closeReactionWindow();
+      resolve({ ok: false, reason: 'moved', actual: name });
+    }
+    // idle → keep waiting
+  } else {
+    if (name === round.correct) {
+      reactionWindow = null; closeReactionWindow();
+      resolve({ ok: true, remainingMs: Math.max(0, remaining) });
+    } else if (labelIdx !== 0) {
+      reactionWindow = null; closeReactionWindow();
+      resolve({ ok: false, reason: 'wrong', actual: name });
+    }
+    // idle → keep waiting (they haven't acted yet)
+  }
+}
+
+// ── Scoring ───────────────────────────────────────────────
+function scoreForWin(round, remainingMs, totalMs, streak) {
+  const base = 10;
+  const streakBonus = streak * 2;
+  let speedBonus = 0;
+  if (round.correct !== 'idle') {
+    speedBonus = Math.round((remainingMs / totalMs) * 10); // 0 to 10
+  }
+  return base + streakBonus + speedBonus;
+}
+
+// ── UI updates ────────────────────────────────────────────
+function setStageClass(cls) {
+  const s = document.getElementById('stage');
+  s.className = 'stage' + (cls ? ' ' + cls : '');
+}
+function setAvatar(emoji, pulse = false) {
+  const el = document.getElementById('avatar');
+  el.textContent = emoji;
+  if (pulse) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
+}
+function setCaptionHTML(html) { document.getElementById('caption').innerHTML = html; }
+function setHint(text)        { document.getElementById('hint').textContent = text; }
+function updateScoreboard() {
+  document.getElementById('score').textContent  = score;
+  document.getElementById('streak').textContent = streak;
+  document.getElementById('best').textContent   = best;
+}
+
+// ── Game flow ─────────────────────────────────────────────
+async function startGame() {
+  if (state !== STATE.MENU && state !== STATE.GAMEOVER) return;
+  score = 0; streak = 0;
+  updateScoreboard();
+  document.getElementById('menuActions').style.display = 'none';
+  log('Game started. Listen carefully!', 'game');
+  await nextRound();
+}
+
+async function nextRound() {
+  const round = buildRound(streak);
+  const totalMs = reactionMsFor(streak);
+  const rate    = speechRateFor(streak);
+
+  // 1. Announce (Simon speaks — caption hidden)
+  state = STATE.ANNOUNCING;
+  setStageClass('announcing');
+  setAvatar('🗣️', true);
+  setCaptionHTML('<span style="color:var(--muted)">Simon is talking…</span>');
+  setHint(`Round ${streak + 1}  ·  ${totalMs} ms to react  ·  rate ${rate.toFixed(2)}×`);
+  await speak(round.spoken, rate);
+
+  // 2. React (caption revealed, timer running)
+  state = STATE.REACTING;
+  setStageClass('reacting');
+  setAvatar('👂');
+  setCaptionHTML(round.captionHTML);
+  setHint(round.correct === 'idle' ? 'Hold still — stay idle!' : 'Go!');
+
+  const result = await openReactionWindow(round, totalMs);
+
+  // 3. Feedback
+  state = STATE.FEEDBACK;
+  if (result.ok) {
+    const pts = scoreForWin(round, result.remainingMs || 0, totalMs, streak);
+    score += pts; streak += 1;
+    updateScoreboard();
+    setStageClass('win');
+    setAvatar('🎉', true);
+    if (round.correct === 'idle') {
+      setCaptionHTML(`Held still! <span class="hl">+${pts}</span>`);
+    } else {
+      setCaptionHTML(`Nice — ${round.correct === 'sixseven' ? '6-7' : round.correct}! <span class="hl">+${pts}</span>`);
+    }
+    setHint(`Streak ${streak}  ·  next round incoming…`);
+    log(`✔ ${round.type}  +${pts}  (streak ${streak})`, 'win');
+    await delay(1000);
+    await nextRound();
+  } else {
+    streak = 0;
+    updateScoreboard();
+    setStageClass('lose');
+    setAvatar('💥', true);
+    const expected = round.correct === 'idle' ? 'stay idle' : (round.correct === 'sixseven' ? '6-7' : round.correct);
+    let msg;
+    if (result.reason === 'timeout')     msg = `Too slow — Simon said <b>${expected}</b>.`;
+    else if (result.reason === 'moved')  msg = `Moved when you shouldn't have! (${result.actual})`;
+    else                                 msg = `Wrong gesture — Simon said <b>${expected}</b>, you did <b>${result.actual}</b>.`;
+    setCaptionHTML(msg);
+    setHint(`Final score: ${score}`);
+    log(`✘ ${round.type}  ${result.reason}  final ${score}`, 'lose');
+    await endGame();
+  }
+}
+
+async function endGame() {
+  state = STATE.GAMEOVER;
+  if (score > best) {
+    best = score;
+    localStorage.setItem('simonBest', String(best));
+    updateScoreboard();
+    log(`🏆 New best: ${best}`, 'game');
+  }
+  saveToLeaderboard(score);
+  renderLeaderboard();
+
+  // Offer restart
+  await delay(300);
+  const actions = document.getElementById('menuActions');
+  actions.innerHTML = '<button class="primary-big" onclick="startGame()">Play Again</button>';
+  actions.style.display = 'flex';
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Leaderboard (localStorage) ─────────────────────────────
+function saveToLeaderboard(score) {
+  if (score <= 0) return;
+  const list = JSON.parse(localStorage.getItem('simonScores') || '[]');
+  list.push({ score, date: new Date().toISOString().slice(0, 10) });
+  list.sort((a, b) => b.score - a.score);
+  localStorage.setItem('simonScores', JSON.stringify(list.slice(0, 5)));
+}
+function renderLeaderboard() {
+  const list = JSON.parse(localStorage.getItem('simonScores') || '[]');
+  const el = document.getElementById('leaderboardList');
+  if (!list.length) { el.innerHTML = '<div class="lb-row empty">No scores yet — play a round!</div>'; return; }
+  el.innerHTML = list.map((e, i) =>
+    `<div class="lb-row"><span class="lb-rank">#${i + 1}</span><span>${e.date}</span><span class="lb-score">${e.score}</span></div>`
+  ).join('');
+}
+renderLeaderboard();
+
+// ── Keyboard fallback for testing without BLE ─────────────
+// 1=clap  2=sixseven  3=floss  4=walking  (no key = idle)
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.code === 'Space' || e.code === 'Enter') {
+    if (state === STATE.MENU || state === STATE.GAMEOVER) { e.preventDefault(); startGame(); }
+    return;
+  }
+  if (state !== STATE.REACTING) return;
+  const keyMap = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4 };
+  if (e.code in keyMap) { e.preventDefault(); handlePrediction(keyMap[e.code]); }
+});
+
+log('Keyboard test: 1=clap, 2=6-7, 3=floss, 4=walking. Space=start/restart.', 'game');
+</script>
+
+</body>
+</html>
