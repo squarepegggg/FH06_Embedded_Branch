@@ -420,7 +420,7 @@ function log(msg, cls = '') {
 // ── Update UI with a new prediction (called for every sliding-window inference) ──
 function onPrediction(index, options = {}) {
   const { logEvent = true } = options;
-  if (index > 5) { log(`Unknown label index: ${index}`, 'err'); return; }
+  if (index >= 5) { log(`Unknown label index: ${index}`, 'err'); return; }
 
   const a = ACTIVITIES[index];
   totalPredictions++;
@@ -735,7 +735,7 @@ function onNotification(event) {
     const arenaBytes  = value.getUint16(11, true);
     const modelBytes  = value.getUint32(13, true);
     const voltageMv   = value.byteLength >= 19 ? value.getUint16(17, true) : VOLTAGE_NO_DATA;
-    const isPrediction = label <= 6 && inferenceUs !== LATENCY_SENTINEL;
+    const isPrediction = label < 5 && inferenceUs !== LATENCY_SENTINEL;
 
     if (isPrediction) {
       const logEvent = label !== lastLoggedLabel;
@@ -753,14 +753,14 @@ function onNotification(event) {
     const x = value.getInt16(1, true);
     const y = value.getInt16(3, true);
     const z = value.getInt16(5, true);
-    if (label <= 6) onPrediction(label);
+    if (label < 5) onPrediction(label);
     onAccelerometer(x, y, z);
     return;
   }
 
   if (value.byteLength >= 1) {
     const byte = value.getUint8(0);
-    if (byte <= 6) onPrediction(byte);
+    if (byte < 5) onPrediction(byte);
     if (!warnedLegacyPacket) {
       log('Received legacy 1-byte packet. Reflash latest firmware for full payload.', 'err');
       warnedLegacyPacket = true;

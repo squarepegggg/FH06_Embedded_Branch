@@ -10,12 +10,12 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
 #include "model-parameters/model_metadata.h"
-#include "tflite-model/tflite_learn_801862_40.h"
+#include "tflite-model/tflite_learn_801862_46.h"
 #include <stdio.h>
 float demo_data[75] = {};
 extern "C" {
     extern const unsigned int ei_model_arena_size  = EI_CLASSIFIER_TFLITE_LARGEST_ARENA_SIZE;
-    extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_40_len;
+    extern const unsigned int ei_model_tflite_len  = tflite_learn_801862_46_len;
 }
 
 extern "C" int ei_v2_classify_test(const char **out_label, float *out_score)
