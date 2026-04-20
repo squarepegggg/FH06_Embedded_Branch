@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dino Runner – BLE Gesture Game</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --muted: #8b8fa3;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; text-align: center; }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-bottom: 16px;
+    width: 100%;
+    max-width: 640px;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+  .status-text { flex: 1; font-size: 0.9rem; color: var(--muted); }
+  .status-text.connected { color: var(--green); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .scoreboard {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 12px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat-label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; font-family: 'Consolas', monospace; margin-top: 4px; }
+  .stat-value.best  { color: var(--green); }
+  .stat-value.speed { color: var(--yellow); }
+
+  .info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 12px;
+    gap: 10px;
+  }
+  .gesture-status {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 6px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'Consolas', monospace;
+  }
+  .gesture-status.jump { color: var(--accent); border-color: var(--accent); }
+  .gesture-status.duck { color: var(--yellow); border-color: var(--yellow); }
+
+  .game-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 640px;
+    margin-bottom: 16px;
+  }
+  canvas {
+    width: 100%;
+    height: 220px;
+    display: block;
+    border-radius: 8px;
+  }
+
+  .log {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .log .entry { display: flex; gap: 10px; }
+  .log .ts { color: #555; flex-shrink: 0; }
+  .log .msg.conn { color: var(--green); }
+  .log .msg.err  { color: var(--red); }
+  .log .msg.game { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>🦖 Dino Runner</h1>
+<p class="subtitle">⁶🤷⁷ 6-7 = jump &nbsp;·&nbsp; 👏 clap = duck &nbsp;·&nbsp; Speeds up as you go</p>
+
+<!-- Connection -->
+<div class="conn-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Disconnected</span>
+  <button id="btnConnect" onclick="connectBLE()">Connect</button>
+  <button id="btnDisconnect" class="secondary" onclick="disconnectBLE()" disabled>Disconnect</button>
+</div>
+
+<!-- Scoreboard -->
+<div class="scoreboard">
+  <div class="stat">
+    <div class="stat-label">Score</div>
+    <div class="stat-value" id="score">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Best</div>
+    <div class="stat-value best" id="best">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Speed</div>
+    <div class="stat-value speed" id="speed">1.0×</div>
+  </div>
+</div>
+
+<div class="info-bar">
+  <div class="gesture-status" id="gestureStatus">No gesture yet</div>
+  <div style="color: var(--muted); font-size: 0.8rem;">⌨️ Space/↑ jump · ↓ duck</div>
+</div>
+
+<div class="game-container">
+  <canvas id="gameCanvas" width="608" height="220"></canvas>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ── BLE (same contract as dashboard) ───────────────────────
+const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
+const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
+const LATENCY_SENTINEL = 0xFFFFFFFF;
+
+// model.py CLASSES order (5 classes)
+const ACTIVITIES = ['idle', 'clap', 'sixseven', 'floss', 'walking'];
+const LABEL_JUMP = 2;  // sixseven
+const LABEL_DUCK = 1;  // clap
+
+let device = null;
+let characteristic = null;
+
+// ── Log ────────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── BLE notification handler ───────────────────────────────
+function onNotification(event) {
+  const value = event.target.value;
+  if (value.byteLength < 17) return;
+
+  const label       = value.getUint8(0);
+  const inferenceUs = value.getUint32(7, true);
+  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
+  if (!isPrediction) return;
+
+  handlePrediction(label);
+}
+
+function handlePrediction(label) {
+  const name = ACTIVITIES[label] || 'unknown';
+  const el = document.getElementById('gestureStatus');
+  el.textContent = name;
+  el.className = 'gesture-status';
+
+  if (label === LABEL_JUMP) {
+    el.classList.add('jump');
+    triggerJump();
+  } else if (label === LABEL_DUCK) {
+    el.classList.add('duck');
+    triggerDuck();
+  }
+}
+
+// ── BLE connect / disconnect ───────────────────────────────
+async function connectBLE() {
+  try {
+    log('Scanning for AccelDevice…', 'conn');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AccelDevice' }],
+      optionalServices: [SERVICE_UUID],
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      setConnected(false);
+      log('Device disconnected', 'err');
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+
+    setConnected(true);
+    log('Connected — do "6-7" to jump, clap to duck!', 'conn');
+  } catch (err) {
+    log(`Error: ${err.message}`, 'err');
+  }
+}
+
+function disconnectBLE() {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  setConnected(false);
+}
+
+function setConnected(connected) {
+  document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+  const st = document.getElementById('statusText');
+  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.className = 'status-text' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').disabled = connected;
+  document.getElementById('btnDisconnect').disabled = !connected;
+}
+
+// ── Canvas setup ───────────────────────────────────────────
+const ACCENT = '#6366f1';
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const W = rect.width - 32;
+  canvas.width = W * dpr;
+  canvas.height = 220 * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = '220px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ── Game constants ─────────────────────────────────────────
+const GROUND_Y = 180;
+const DINO_X = 60;
+const DINO_W_STAND = 30;
+const DINO_H_STAND = 44;
+const DINO_W_DUCK  = 44;
+const DINO_H_DUCK  = 24;
+const GRAVITY = 0.7;
+const JUMP_VEL_BASE = -13;
+const DUCK_MS = 900;        // each clap gives 900ms of duck
+const BIRD_UNLOCK_SCORE = 8;
+
+// ── Game state ─────────────────────────────────────────────
+let state = 'ready';        // 'ready' | 'playing' | 'gameover'
+let dinoY = GROUND_Y - DINO_H_STAND;
+let velY = 0;
+let isJumping = false;
+let duckUntil = 0;          // performance.now() timestamp while ducking
+
+let obstacles = [];
+let frameCount = 0;
+let score = 0;
+let gameSpeed = 4;
+let groundScroll = 0;
+let bgStars = [];
+
+let best = Number(localStorage.getItem('dinoBest') || 0);
+document.getElementById('best').textContent = best;
+
+function isDucking() { return performance.now() < duckUntil && !isJumping; }
+
+// ── Controls ──────────────────────────────────────────────
+function triggerJump() {
+  if (state === 'ready') { startRun(); return; }
+  if (state === 'gameover') { resetGame(); return; }
+  if (state !== 'playing') return;
+  if (isJumping) return;
+  // Higher speed → slightly stronger jump so you can still clear things
+  velY = JUMP_VEL_BASE - (gameSpeed - 4) * 0.25;
+  isJumping = true;
+  // Jumping cancels any in-progress duck
+  duckUntil = 0;
+}
+
+function triggerDuck() {
+  if (state === 'ready')    { startRun(); return; }
+  if (state === 'gameover') { return; }
+  if (state !== 'playing' || isJumping) return;
+  // Extend the duck window; holding clap = re-triggers while ducking
+  duckUntil = performance.now() + DUCK_MS;
+}
+
+function startRun() {
+  state = 'playing';
+  log('Run started', 'game');
+}
+
+function resetGame() {
+  obstacles = [];
+  frameCount = 0;
+  score = 0;
+  gameSpeed = 4;
+  dinoY = GROUND_Y - DINO_H_STAND;
+  velY = 0;
+  isJumping = false;
+  duckUntil = 0;
+  document.getElementById('score').textContent = 0;
+  document.getElementById('speed').textContent = '1.0×';
+  state = 'playing';
+  log('Restarted', 'game');
+}
+
+// Keyboard fallback for testing
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); triggerJump(); }
+  else if (e.code === 'ArrowDown')                { e.preventDefault(); triggerDuck(); }
+});
+
+// ── Obstacle spawning ─────────────────────────────────────
+function spawnObstacle() {
+  const W = canvas.width / dpr;
+  const canSpawnBird = score >= BIRD_UNLOCK_SCORE;
+  const isBird = canSpawnBird && Math.random() < 0.4;
+
+  if (isBird) {
+    // Bird sits in a band that a standing dino hits but a ducking dino clears
+    const h = 22;
+    const w = 34;
+    const y = 116;  // y_bottom = 138. Standing dino top = 136 → hits. Duck top = 156 → clears.
+    obstacles.push({ kind: 'bird', x: W, y, w, h, flap: 0 });
+  } else {
+    // Cactus grows slightly with score
+    const h = 24 + Math.random() * 22 + Math.min(score * 0.3, 10);
+    const w = 16 + Math.random() * 12;
+    obstacles.push({ kind: 'cactus', x: W, y: GROUND_Y - h, w, h });
+  }
+}
+
+function spawnIntervalForScore(s) {
+  // 90 → 40 frames between spawns as score grows
+  return Math.max(40, 90 - Math.floor(s * 1.2));
+}
+
+// ── Background stars (just for vibes) ─────────────────────
+function seedStars() {
+  const W = canvas.width / dpr || 600;
+  bgStars = [];
+  for (let i = 0; i < 18; i++) {
+    bgStars.push({ x: Math.random() * W, y: 20 + Math.random() * 100, r: Math.random() < 0.5 ? 1 : 1.5 });
+  }
+}
+seedStars();
+
+// ── Update ────────────────────────────────────────────────
+function update() {
+  if (state !== 'playing') return;
+
+  // Dino physics
+  velY += GRAVITY;
+  dinoY += velY;
+  const floorYForStand = GROUND_Y - DINO_H_STAND;
+  if (dinoY >= floorYForStand) {
+    dinoY = floorYForStand;
+    velY = 0;
+    isJumping = false;
+  }
+
+  // Obstacles — spawn on cadence
+  const spawnInterval = spawnIntervalForScore(score);
+  if (frameCount % spawnInterval === 0 && frameCount > 0) {
+    // Avoid stacking obstacles too close
+    const last = obstacles[obstacles.length - 1];
+    const W = canvas.width / dpr;
+    if (!last || (W - last.x) > 120) spawnObstacle();
+  }
+
+  // Move obstacles
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    obstacles[i].x -= gameSpeed;
+    if (obstacles[i].kind === 'bird') obstacles[i].flap = (obstacles[i].flap + 1) % 16;
+    if (obstacles[i].x + obstacles[i].w < 0) {
+      obstacles.splice(i, 1);
+      score++;
+      document.getElementById('score').textContent = score;
+    }
+  }
+
+  // Collisions — dino hitbox depends on stance
+  const ducking = isDucking();
+  const dW = ducking ? DINO_W_DUCK : DINO_W_STAND;
+  const dH = ducking ? DINO_H_DUCK : DINO_H_STAND;
+  const dY = ducking ? GROUND_Y - DINO_H_DUCK : dinoY;
+
+  for (const obs of obstacles) {
+    if (
+      DINO_X + dW > obs.x &&
+      DINO_X < obs.x + obs.w &&
+      dY + dH > obs.y &&
+      dY < obs.y + obs.h
+    ) {
+      endRun();
+      break;
+    }
+  }
+
+  // Speed ramp — every point adds a bit, caps at 12 px/frame
+  gameSpeed = 4 + Math.min(score * 0.3, 8);
+  document.getElementById('speed').textContent = (gameSpeed / 4).toFixed(2) + '×';
+
+  groundScroll = (groundScroll - gameSpeed) % 24;
+  frameCount++;
+}
+
+function endRun() {
+  state = 'gameover';
+  if (score > best) {
+    best = score;
+    localStorage.setItem('dinoBest', String(best));
+    document.getElementById('best').textContent = best;
+    log(`🏆 New best: ${best}`, 'game');
+  }
+  log(`Game over — score ${score}`, 'err');
+}
+
+// ── Draw ───────────────────────────────────────────────────
+function draw() {
+  const W = canvas.width / dpr;
+  const H = 220;
+  ctx.clearRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = '#2a2d3a';
+  for (const s of bgStars) {
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+  }
+
+  // Ground
+  ctx.strokeStyle = '#2a2d3a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y + 1);
+  ctx.lineTo(W, GROUND_Y + 1);
+  ctx.stroke();
+
+  // Ground "pebble" ticks that scroll
+  ctx.fillStyle = '#2a2d3a';
+  for (let x = groundScroll; x < W; x += 24) {
+    ctx.fillRect(x, GROUND_Y + 4, 6, 2);
+  }
+
+  // Dino
+  drawDino();
+
+  // Obstacles
+  for (const obs of obstacles) {
+    if (obs.kind === 'cactus') {
+      ctx.fillStyle = 'var(--green)';
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+      // notch
+      ctx.fillStyle = '#16a34a';
+      ctx.fillRect(obs.x + 2, obs.y + 4, obs.w - 4, 3);
+    } else {
+      drawBird(obs);
+    }
+  }
+
+  // HUD messages
+  ctx.textAlign = 'center';
+  if (state === 'ready') {
+    ctx.fillStyle = '#e1e4ed';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('🦖 Ready?', W / 2, 80);
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = '#8b8fa3';
+    ctx.fillText('Do "6-7" (or press Space) to start', W / 2, 104);
+  } else if (state === 'gameover') {
+    ctx.fillStyle = '#e1e4ed';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('GAME OVER', W / 2, 78);
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#8b8fa3';
+    ctx.fillText(`Score ${score}  ·  Best ${best}`, W / 2, 102);
+    ctx.fillText('Do "6-7" or press Space to restart', W / 2, 124);
+  }
+
+  // Duck indicator
+  if (isDucking() && state === 'playing') {
+    const msLeft = Math.max(0, duckUntil - performance.now());
+    const pct = msLeft / DUCK_MS;
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(DINO_X, GROUND_Y + 10, DINO_W_DUCK * pct, 2);
+  }
+}
+
+function drawDino() {
+  const ducking = isDucking();
+  const dW = ducking ? DINO_W_DUCK : DINO_W_STAND;
+  const dH = ducking ? DINO_H_DUCK : DINO_H_STAND;
+  const dY = ducking ? GROUND_Y - DINO_H_DUCK : dinoY;
+
+  // Body
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(DINO_X, dY, dW, dH);
+
+  // Eye
+  ctx.fillStyle = '#0f1117';
+  const eyeX = DINO_X + dW - 9;
+  const eyeY = dY + 6;
+  ctx.fillRect(eyeX, eyeY, 4, 4);
+
+  // Tail hint when standing
+  if (!ducking) {
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(DINO_X - 6, dY + 10, 6, 10);
+  }
+}
+
+function drawBird(b) {
+  ctx.fillStyle = '#ef4444';
+  // body
+  ctx.fillRect(b.x, b.y + 6, b.w, b.h - 8);
+  // wing up/down based on flap counter
+  const wingUp = b.flap < 8;
+  if (wingUp) ctx.fillRect(b.x + 4, b.y - 4, b.w - 10, 8);
+  else        ctx.fillRect(b.x + 4, b.y + b.h - 4, b.w - 10, 8);
+  // beak
+  ctx.fillStyle = '#eab308';
+  ctx.fillRect(b.x + b.w, b.y + 8, 5, 3);
+}
+
+// ── Main loop ─────────────────────────────────────────────
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+gameLoop();
+
+log('Keyboard test: Space/↑ = jump, ↓ = duck.', 'game');
+</script>
+
+</body>
+</html>
