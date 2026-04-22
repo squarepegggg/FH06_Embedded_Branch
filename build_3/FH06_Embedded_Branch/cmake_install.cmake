@@ -44,7 +44,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v4/cmake_install.cmake")
+  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v6/cmake_install.cmake")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT)

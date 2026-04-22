@@ -436,7 +436,7 @@
 /Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/zephyr/cmake/reports/CMakeFiles/footprint.dir
 /Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/zephyr/cmake/reports/CMakeFiles/ram_plot.dir
 /Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/zephyr/cmake/reports/CMakeFiles/ram_report.dir
-/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v4/CMakeFiles/rebuild_cache.dir
-/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v4/CMakeFiles/edit_cache.dir
-/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v4/edge-impulse-sdk/cmake/zephyr/CMakeFiles/rebuild_cache.dir
-/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v4/edge-impulse-sdk/cmake/zephyr/CMakeFiles/edit_cache.dir
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v6/CMakeFiles/rebuild_cache.dir
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v6/CMakeFiles/edit_cache.dir
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v6/edge-impulse-sdk/cmake/zephyr/CMakeFiles/rebuild_cache.dir
+/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_3/FH06_Embedded_Branch/ei-v6/edge-impulse-sdk/cmake/zephyr/CMakeFiles/edit_cache.dir

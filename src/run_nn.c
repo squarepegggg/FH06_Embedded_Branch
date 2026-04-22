@@ -34,32 +34,20 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 		return;
 	}
 
-	/* Map EI labels to index 0-5 for the new 6-class model:
-	 * 0=idle, 1=jump, 2=sixseven, 3=spinning, 4=walking, 5=waving.
-	 */
-	//  if (strcmp(label, "idle") == 0)       biggest_idx = 0;
-	// else if (strcmp(label, "jump") == 0)       biggest_idx = 1;
-	// else if (strcmp(label, "sixseven") == 0)   biggest_idx = 2;
-	// else if (strcmp(label, "spinning") == 0)   biggest_idx = 3;
-	// else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
-	// else if (strcmp(label, "waving") == 0)     biggest_idx = 5;
 
-	if (strcmp(label, "class 1") == 0)
-                       biggest_idx = 0;  /* 67     */
+				   if (strcmp(label, "class 1") == 0)
+                       biggest_idx = 0;  /* idle     */
                    else if (strcmp(label, "class 2") == 0)
                        biggest_idx = 1;  /* clap   */
                    else if (strcmp(label, "class 3") == 0)
-                       biggest_idx = 2;  /* dab    */
+                       biggest_idx = 2;  /* sixseven    */
                    else if (strcmp(label, "class 4") == 0)
-                       biggest_idx = 3;  /* disco  */
+                       biggest_idx = 3;  /* spinning  */
                    else if (strcmp(label, "class 5") == 0)
-                       biggest_idx = 4;  /* floss  */
-                   else if (strcmp(label, "class 6") == 0)
-                       biggest_idx = 5;  /* griddy */
-                   else if (strcmp(label, "class 7") == 0)
-                       biggest_idx = 6;  /* roll   */
-                   else if (strcmp(label, "class 8") == 0)
-                       biggest_idx = 7;  /* wave   */
+                       biggest_idx = 4;  /* walking  */
+
+
+	
 
 	else biggest_idx = 0;
 	biggest_score = score;

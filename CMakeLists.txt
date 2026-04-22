@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(bma400_sample)
 
-add_subdirectory(ei-v4)
+add_subdirectory(ei-v6)
 target_sources(app PRIVATE src/main.c)
 target_sources(app PRIVATE src/bma400.c)
 target_sources(app PRIVATE src/run_nn.c)
