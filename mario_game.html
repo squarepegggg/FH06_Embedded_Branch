@@ -510,6 +510,17 @@ function moveEntityY(e, dy) {
       return { blocked: true, tx, ty, dir: dy > 0 ? 'down' : 'up' };
     }
   }
+  // Resting-on-ground check: AABB uses (y+h-1) to avoid off-by-one, which
+  // means sub-pixel sinks from gravity don't register as collisions. Scan the
+  // tile row directly under the feet so onGround stays stable between landings.
+  if (dy >= 0) {
+    const t0x = Math.floor(e.x / TILE);
+    const t1x = Math.floor((e.x + e.w - 1) / TILE);
+    const feetTy = Math.floor((e.y + e.h) / TILE);
+    for (let tx = t0x; tx <= t1x; tx++) {
+      if (isSolidAt(tx, feetTy)) { e.onGround = true; break; }
+    }
+  }
   return { blocked: false };
 }
 
