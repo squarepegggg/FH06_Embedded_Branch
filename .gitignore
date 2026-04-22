@@ -20,6 +20,8 @@ ei-v2/edge-impulse-sdk/
 *~
 .idea/
 *.code-workspace
+.cache/
+desktop-app/
 
 # ──────────────────────────────────────────────
 #  macOS
