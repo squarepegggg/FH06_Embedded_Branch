@@ -157,7 +157,7 @@ const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 // model.py CLASSES order
-const ACTIVITIES  = ['idle', 'clap', 'sixseven', 'floss', 'walking'];
+const ACTIVITIES  = ['idle', 'clap', 'sixseven', 'spin', 'walking'];
 const LABEL_CLAP  = 1;
 const LABEL_JUMP  = 2;  // sixseven
 const LABEL_WALK  = 4;
@@ -206,9 +206,7 @@ function handlePrediction(label) {
   }
   if (label === LABEL_JUMP) {
     el.classList.add('jump');
-    if (prev !== LABEL_JUMP) {
-      triggerJump();
-    }
+    triggerJump();  // triggerJump guards onGround; no rising-edge needed here
     return;
   }
   if (label === LABEL_CLAP) {
