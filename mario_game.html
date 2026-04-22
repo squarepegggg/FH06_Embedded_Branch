@@ -122,7 +122,7 @@
 
 <h1>🍄 Super Mario</h1>
 <p class="subtitle">
-  🚶 walk / 👏 clap = move forward &nbsp;·&nbsp; ⁶🤷⁷ 6-7 = jump &nbsp;·&nbsp; 💫 spin = power up
+  ⁶🤷⁷ 6-7 = move forward &nbsp;·&nbsp; 👏 clap = jump &nbsp;·&nbsp; 👋 wave = power up
 </p>
 
 <div class="conn-bar">
@@ -156,12 +156,12 @@ const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
-// model.py CLASSES order
-const ACTIVITIES    = ['idle', 'clap', 'sixseven', 'spin', 'walking'];
-const LABEL_CLAP    = 1;   // → walk
-const LABEL_JUMP    = 2;   // sixseven
-const LABEL_POWERUP = 3;   // spin
-const LABEL_WALK    = 4;
+// model.py CLASSES order: ["idle", "walk", "sixseven", "wave", "clap"]
+const ACTIVITIES     = ['idle', 'walk', 'sixseven', 'wave', 'clap'];
+const LABEL_WALK_BLE = 1;  // walk → move forward
+const LABEL_SIXSEVEN = 2;  // sixseven → move forward
+const LABEL_WAVE     = 3;  // wave → powerup
+const LABEL_CLAP     = 4;  // clap → jump
 
 let device = null;
 let characteristic = null;
@@ -185,7 +185,7 @@ function onNotification(event) {
   /* Fresh sliding-window inference, or cached-label stream (firmware sentinel). */
   const isFreshInference = inferenceUs !== LATENCY_SENTINEL;
   const isCachedStream   = inferenceUs === LATENCY_SENTINEL;
-  const playable = label === LABEL_WALK || label === LABEL_JUMP || label === LABEL_CLAP || label === LABEL_POWERUP;
+  const playable = label === LABEL_WALK_BLE || label === LABEL_SIXSEVEN || label === LABEL_CLAP || label === LABEL_WAVE;
 
   if (isFreshInference || (isCachedStream && (playable || label === 0))) {
     handlePrediction(label);
@@ -200,19 +200,19 @@ function handlePrediction(label) {
   const prev = prevBleLabel;
   prevBleLabel = label;
 
-  if (label === LABEL_WALK || label === LABEL_CLAP) {
+  if (label === LABEL_WALK_BLE || label === LABEL_SIXSEVEN) {
     el.classList.add('walk');
     triggerWalk();
     return;
   }
-  if (label === LABEL_JUMP) {
+  if (label === LABEL_CLAP) {
     el.classList.add('jump');
-    triggerJump();  // triggerJump guards onGround; no rising-edge needed here
+    triggerJump();
     return;
   }
-  if (label === LABEL_POWERUP) {
+  if (label === LABEL_WAVE) {
     el.classList.add('fire');
-    if (prev !== LABEL_POWERUP) {
+    if (prev !== LABEL_WAVE) {
       triggerPowerup();
     }
     return;
