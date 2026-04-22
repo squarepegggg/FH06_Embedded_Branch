@@ -35,7 +35,7 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 	if (strcmp(label, "idle") == 0)            biggest_idx = 0;
 	else if (strcmp(label, "clap") == 0)       biggest_idx = 1;
 	else if (strcmp(label, "sixseven") == 0)   biggest_idx = 2;
-	else if (strcmp(label, "floss") == 0)      biggest_idx = 3;
+	else if (strcmp(label, "dab") == 0)        biggest_idx = 3;
 	else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
 	else biggest_idx = 0;
 }
