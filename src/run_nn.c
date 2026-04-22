@@ -33,9 +33,9 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 
 	/* Map EI labels to index 0-4 (matches ML/model.py CLASSES) */
 	if (strcmp(label, "idle") == 0)            biggest_idx = 0;
-	else if (strcmp(label, "clap") == 0)       biggest_idx = 1;
+	else if (strcmp(label, "walk") == 0)       biggest_idx = 1;
 	else if (strcmp(label, "sixseven") == 0)   biggest_idx = 2;
-	else if (strcmp(label, "dab") == 0)        biggest_idx = 3;
-	else if (strcmp(label, "walking") == 0)    biggest_idx = 4;
+	else if (strcmp(label, "wave") == 0)       biggest_idx = 3;
+	else if (strcmp(label, "clap") == 0)       biggest_idx = 4;
 	else biggest_idx = 0;
 }
