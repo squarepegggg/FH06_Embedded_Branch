@@ -299,13 +299,8 @@ void thread_read_bma400(void)
 		uint16_t got = FIFO_SAMPLES;          /* max we can parse */
 		bma400_extract_accel(&fifo_frame, accel_data, &got, &bma_sensor);
 
-		/* ── 2. Send each new sample via BLE immediately ── */
+		/* ── 2. Process each FIFO sample; BLE streams cached label for low game latency ── */
 		for (int i = 0; i < got; i++) {
-			// send_prediction_accel_notification(cached_label, accel_data[i].x, accel_data[i].y,
-			// 				accel_data[i].z, LATENCY_SENTINEL,
-			// 				(uint16_t)ei_model_arena_size,
-			// 				ei_model_tflite_len);
-
 			/* Copy into ML window */
 			// fills inital buffer [0,25]
 			if (ml_idx < FIFO_SAMPLES) {
@@ -337,6 +332,8 @@ void thread_read_bma400(void)
 			if (ml_idx >= FIFO_SAMPLES) {
 				const char *predictedLabel = NULL;
 				float predictedScore = 0.0f;
+				bool sent_fresh = false;
+
 				printk("preinfernece\n");
 				uint32_t start_cyc = k_cycle_get_32();
 				int inferenceResult = ei_v2_classify_test(&predictedLabel, &predictedScore);
@@ -355,7 +352,6 @@ void thread_read_bma400(void)
 					else if (strcmp(predictedLabel, "class 4") == 0) result_to_send = 3;
 					else if (strcmp(predictedLabel, "class 5") == 0)   result_to_send = 4;
 					else if (strcmp(predictedLabel, "class 6") == 0)   result_to_send = 5;
-					/* Send one notification with the fresh ML label */
 					printk("result: %d\n", result_to_send);
 					cached_label = result_to_send;
 
@@ -366,10 +362,19 @@ void thread_read_bma400(void)
 									latency_us,
 									(uint16_t)ei_model_arena_size,
 									ei_model_tflite_len);
+					sent_fresh = true;
 					printk("Inference latency: %u us | Arena: %u B | Model: %u B\n",
 						latency_us, ei_model_arena_size, ei_model_tflite_len);
 				} else {
 					printk("Inference failed with code: %d\n", inferenceResult);
+				}
+
+				/* Keep streaming last good class + live accel (web uses LATENCY_SENTINEL
+				 * for plots; Mario treats playable labels as game input — rising-edge). */
+				if (!sent_fresh && cached_label != 0xFF) {
+					send_prediction_accel_notification(
+						cached_label, accel_data[i].x, accel_data[i].y, accel_data[i].z,
+						LATENCY_SENTINEL, (uint16_t)ei_model_arena_size, ei_model_tflite_len);
 				}
 		}
 			// ml_idx = 0;  // took out 2/18; because doesn't work w/ sliding window method

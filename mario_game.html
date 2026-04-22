@@ -164,6 +164,8 @@ const LABEL_WALK  = 4;
 
 let device = null;
 let characteristic = null;
+/** Previous BLE activity label (-1 = none yet). Used for jump/clap rising-edge so one gesture = one action. */
+let prevBleLabel = -1;
 
 function log(msg, cls = '') {
   const el = document.getElementById('log');
@@ -177,18 +179,45 @@ function onNotification(event) {
   if (value.byteLength < 17) return;
   const label       = value.getUint8(0);
   const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
-  if (!isPrediction) return;
-  handlePrediction(label);
+  if (label >= ACTIVITIES.length) return;
+
+  /* Fresh sliding-window inference, or cached-label stream (firmware sentinel). */
+  const isFreshInference = inferenceUs !== LATENCY_SENTINEL;
+  const isCachedStream   = inferenceUs === LATENCY_SENTINEL;
+  const playable = label === LABEL_WALK || label === LABEL_JUMP || label === LABEL_CLAP;
+
+  if (isFreshInference || (isCachedStream && (playable || label === 0))) {
+    handlePrediction(label);
+  }
 }
 
 function handlePrediction(label) {
   const el = document.getElementById('gestureStatus');
   el.textContent = ACTIVITIES[label] || 'unknown';
   el.className = 'gesture-status';
-  if      (label === LABEL_WALK) { el.classList.add('walk'); triggerWalk(); }
-  else if (label === LABEL_JUMP) { el.classList.add('jump'); triggerJump(); }
-  else if (label === LABEL_CLAP) { el.classList.add('fire'); triggerFire(); }
+
+  const prev = prevBleLabel;
+  prevBleLabel = label;
+
+  if (label === LABEL_WALK) {
+    el.classList.add('walk');
+    triggerWalk();
+    return;
+  }
+  if (label === LABEL_JUMP) {
+    el.classList.add('jump');
+    if (prev !== LABEL_JUMP) {
+      triggerJump();
+    }
+    return;
+  }
+  if (label === LABEL_CLAP) {
+    el.classList.add('fire');
+    if (prev !== LABEL_CLAP) {
+      triggerFire();
+    }
+    return;
+  }
 }
 
 async function connectBLE() {
@@ -223,6 +252,9 @@ function setConnected(connected) {
   st.className = 'status-text' + (connected ? ' connected' : '');
   document.getElementById('btnConnect').disabled = connected;
   document.getElementById('btnDisconnect').disabled = !connected;
+  if (!connected) {
+    prevBleLabel = -1;
+  }
 }
 
 // ── Game constants ─────────────────────────────────────────
@@ -248,6 +280,8 @@ const KOOPA_SPEED      = 0.4;
 const SHELL_SLIDE      = 2.8;
 const TIMER_START      = 300;
 const STOMP_BOUNCE_VEL = -5.5;
+/** 1 = normal speed; 0.5 = half simulation tick rate (physics + level timer). */
+const GAME_SPEED       = 0.5;
 
 // ── Level definition ───────────────────────────────────────
 // All coords are in TILES; game world is 64 × 14 tiles = 1024 × 224 px
@@ -398,7 +432,7 @@ function spawnEnemy(spec) {
 function triggerWalk() {
   if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
   if (gameState !== 'playing') return;
-  mario.walkUntil = performance.now() + WALK_WINDOW_MS;
+  mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
 }
 function triggerJump() {
   if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
@@ -725,7 +759,7 @@ function update(dt) {
 
   // Timer
   const now = performance.now();
-  timeLeft -= (now - lastTimeTick) / 1000 * 0.8;  // 1 in-game sec ≈ 0.8 real sec? Actually let's do real seconds
+  timeLeft -= ((now - lastTimeTick) / 1000) * 0.8 * GAME_SPEED;
   lastTimeTick = now;
   if (timeLeft <= 0) { timeLeft = 0; updateHUD(); killMario(); return; }
 
@@ -1165,7 +1199,7 @@ function draw() {
 function loop(now) {
   if (!lastFrame) lastFrame = now;
   // Normalize to 60fps "frame units"; clamp to avoid big jumps
-  const dt = Math.min(2, (now - lastFrame) / (1000 / 60));
+  const dt = Math.min(2, (now - lastFrame) / (1000 / 60)) * GAME_SPEED;
   lastFrame = now;
 
   // Keyboard walking is momentary — each keydown refreshes window

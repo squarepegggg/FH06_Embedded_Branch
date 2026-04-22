@@ -227,7 +227,8 @@
 <h1>🗣️ Simon Says</h1>
 <p class="subtitle">
   Do what Simon says — but <b>only</b> when Simon says to.<br>
-  Gestures: 👏 clap · ⁶🤷⁷ 6-7 · 🕺 floss · 🚶 walking
+  Gestures: 👏 clap · ⁶🤷⁷ 6-7 · 🕺 floss · 🚶 walking<br>
+  After Simon speaks you have <b>6 seconds</b>; every on-device prediction is counted, and your <b>most common</b> gesture wins the round (ties → earlier gesture in list).
 </p>
 
 <!-- Connection -->
@@ -480,15 +481,30 @@ function buildRound(streak) {
   }
 }
 
-// Reaction window shrinks and speech rate climbs as streak grows
-function reactionMsFor(streak) { return Math.max(1500, 4000 - streak * 180); }
+// Fixed reaction window: collect predictions for 6s, then majority vote wins
+const REACTION_WINDOW_MS = 6000;
+function reactionMsFor(_streak) { return REACTION_WINDOW_MS; }
 function speechRateFor(streak) { return Math.min(1.55, 1.0 + streak * 0.035); }
+
+/** Pick activity index with highest prediction count; ties → lower index wins. */
+function majorityPredictionIndex(counts) {
+  let idx = 0;
+  let maxC = counts[0] || 0;
+  for (let i = 1; i < counts.length; i++) {
+    if (counts[i] > maxC) {
+      maxC = counts[i];
+      idx = i;
+    }
+  }
+  return { idx, maxC };
+}
 
 // ── Reaction window ───────────────────────────────────────
 function openReactionWindow(round, totalMs) {
   return new Promise((resolve) => {
     const startedAt = performance.now();
-    reactionWindow = { round, resolve, startedAt, totalMs };
+    const counts = new Array(ACTIVITIES.length).fill(0);
+    reactionWindow = { round, resolve, startedAt, totalMs, counts };
 
     // Animate timer bar via CSS transform
     const fill = document.getElementById('timerFill');
@@ -502,12 +518,41 @@ function openReactionWindow(round, totalMs) {
 
     reactionTimer = setTimeout(() => {
       if (!reactionWindow) return;
-      const r = reactionWindow; reactionWindow = null;
-      // Time's up
+      const r = reactionWindow;
+      reactionWindow = null;
+      closeReactionWindow();
+
+      const { idx: submittedIdx, maxC } = majorityPredictionIndex(r.counts);
+      const submittedName = ACTIVITIES[submittedIdx];
+      const countsStr = GESTURES.map(g => {
+        const i = ACTIVITIES.indexOf(g);
+        return `${g}:${r.counts[i]}`;
+      }).join(' ');
+
+      if (maxC === 0) {
+        if (r.round.correct === 'idle') {
+          log(`Round end — no predictions (counts idle). Majority: idle ✓`, 'game');
+          resolve({ ok: true, remainingMs: 0, submittedName: 'idle', counts: r.counts });
+        } else {
+          log(`Round end — no predictions. (${countsStr})`, 'lose');
+          resolve({ ok: false, reason: 'timeout', actual: '(no predictions)', counts: r.counts });
+        }
+        return;
+      }
+
+      let ok = false;
       if (r.round.correct === 'idle') {
-        resolve({ ok: true, remainingMs: 0 });    // held idle through the window
+        ok = submittedName === 'idle';
       } else {
-        resolve({ ok: false, reason: 'timeout' });
+        ok = submittedName === r.round.correct;
+      }
+
+      log(`Round end — majority <b>${submittedName}</b> (${maxC} predictions). ${countsStr}`, ok ? 'win' : 'lose');
+
+      if (ok) {
+        resolve({ ok: true, remainingMs: 0, submittedName, counts: r.counts });
+      } else {
+        resolve({ ok: false, reason: 'wrong', actual: submittedName, counts: r.counts });
       }
     }, totalMs);
   });
@@ -520,27 +565,8 @@ function closeReactionWindow() {
 
 function handlePrediction(labelIdx) {
   if (!reactionWindow) return;
-  const name = ACTIVITIES[labelIdx];
-  const { round, resolve, startedAt, totalMs } = reactionWindow;
-  const remaining = totalMs - (performance.now() - startedAt);
-
-  if (round.correct === 'idle') {
-    // Must NOT move — any active gesture loses immediately
-    if (labelIdx !== 0) {
-      reactionWindow = null; closeReactionWindow();
-      resolve({ ok: false, reason: 'moved', actual: name });
-    }
-    // idle → keep waiting
-  } else {
-    if (name === round.correct) {
-      reactionWindow = null; closeReactionWindow();
-      resolve({ ok: true, remainingMs: Math.max(0, remaining) });
-    } else if (labelIdx !== 0) {
-      reactionWindow = null; closeReactionWindow();
-      resolve({ ok: false, reason: 'wrong', actual: name });
-    }
-    // idle → keep waiting (they haven't acted yet)
-  }
+  if (labelIdx < 0 || labelIdx >= ACTIVITIES.length) return;
+  reactionWindow.counts[labelIdx]++;
 }
 
 // ── Scoring ───────────────────────────────────────────────
@@ -592,7 +618,7 @@ async function nextRound() {
   setStageClass('announcing');
   setAvatar('🗣️', true);
   setCaptionHTML('<span style="color:var(--muted)">Simon is talking…</span>');
-  setHint(`Round ${streak + 1}  ·  ${totalMs} ms to react  ·  rate ${rate.toFixed(2)}×`);
+  setHint(`Round ${streak + 1}  ·  ${(totalMs / 1000).toFixed(0)}s to gesture — majority prediction wins  ·  rate ${rate.toFixed(2)}×`);
   await speak(round.spoken, rate);
 
   // 2. React (caption revealed, timer running)
@@ -600,7 +626,9 @@ async function nextRound() {
   setStageClass('reacting');
   setAvatar('👂');
   setCaptionHTML(round.captionHTML);
-  setHint(round.correct === 'idle' ? 'Hold still — stay idle!' : 'Go!');
+  setHint(round.correct === 'idle'
+    ? 'Stay idle or keep idle as your most common prediction for 6s.'
+    : 'Perform the gesture — your most common prediction in 6s counts.');
 
   const result = await openReactionWindow(round, totalMs);
 
@@ -628,9 +656,11 @@ async function nextRound() {
     setAvatar('💥', true);
     const expected = round.correct === 'idle' ? 'stay idle' : (round.correct === 'sixseven' ? '6-7' : round.correct);
     let msg;
-    if (result.reason === 'timeout')     msg = `Too slow — Simon said <b>${expected}</b>.`;
-    else if (result.reason === 'moved')  msg = `Moved when you shouldn't have! (${result.actual})`;
-    else                                 msg = `Wrong gesture — Simon said <b>${expected}</b>, you did <b>${result.actual}</b>.`;
+    if (result.reason === 'timeout') {
+      msg = `No predictions — Simon needed <b>${expected}</b>.`;
+    } else {
+      msg = `Majority was <b>${result.actual}</b> — Simon needed <b>${expected}</b>.`;
+    }
     setCaptionHTML(msg);
     setHint(`Final score: ${score}`);
     log(`✘ ${round.type}  ${result.reason}  final ${score}`, 'lose');
@@ -689,7 +719,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code in keyMap) { e.preventDefault(); handlePrediction(keyMap[e.code]); }
 });
 
-log('Keyboard test: 1=clap, 2=6-7, 3=floss, 4=walking. Space=start/restart.', 'game');
+log('Keyboard test: 1=clap, 2=6-7, 3=floss, 4=walking (each key adds a prediction). Space=start/restart.', 'game');
 </script>
 
 </body>
