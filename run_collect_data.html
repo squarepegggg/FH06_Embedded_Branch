@@ -90,7 +90,7 @@
 <h1>Accelerometer CSV capture</h1>
 <p class="subtitle">
   Connect to the same <strong>AccelDevice</strong> GATT service as the dashboard.
-  Timestamps are <strong>browser receive time</strong> (UTC). X/Y/Z match the dashboard: raw LSB plus m/s² using ±4G, 512 LSB/g.
+  Timestamps are <strong>browser receive time</strong> (local). CSV columns: <code>Timestamp,X,Y,Z</code> (raw LSB).
 </p>
 
 <div class="card">
@@ -130,26 +130,15 @@
 // Same UUIDs and device filter as ble_dashboard.html / main.c
 const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
 const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
-const G = 9.80665;
-const LSB_PER_G = 512.0;
 
 let device = null;
 let characteristic = null;
 let recording = false;
-/** @type {{ iso: string, unix_ms: number, movement: string, label: number, x_lsb: number, y_lsb: number, z_lsb: number, x_ms2: number, y_ms2: number, z_ms2: number }[]} */
+/** @type {{ timestamp: string, movement: string, label: number, x: number, y: number, z: number }[]} */
 const rows = [];
 
 function getMovementLabel() {
   return document.getElementById('movementInput').value.trim();
-}
-
-/** RFC-style CSV field quoting for strings that may contain commas or quotes */
-function csvCellStr(s) {
-  const t = String(s);
-  if (/[",\n\r]/.test(t)) {
-    return '"' + t.replace(/"/g, '""') + '"';
-  }
-  return t;
 }
 
 function filenameSlug(s) {
@@ -163,24 +152,28 @@ function log(msg) {
   el.textContent = `[${t}] ${msg}\n` + el.textContent;
 }
 
-function lsbToMs2(v) {
-  return (v * G) / LSB_PER_G;
+function formatTimestamp(d) {
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  return (
+    d.getFullYear() + '-' +
+    pad(d.getMonth() + 1) + '-' +
+    pad(d.getDate()) + ' ' +
+    pad(d.getHours()) + ':' +
+    pad(d.getMinutes()) + ':' +
+    pad(d.getSeconds()) + '.' +
+    pad(d.getMilliseconds(), 3)
+  );
 }
 
 function pushSample(label, x, y, z) {
   const movement = getMovementLabel();
   const now = new Date();
-  const iso = now.toISOString();
-  const unix_ms = now.getTime();
-  const x_ms2 = lsbToMs2(x);
-  const y_ms2 = lsbToMs2(y);
-  const z_ms2 = lsbToMs2(z);
-  rows.push({ iso, unix_ms, movement, label, x_lsb: x, y_lsb: y, z_lsb: z, x_ms2, y_ms2, z_ms2 });
+  const timestamp = formatTimestamp(now);
+  rows.push({ timestamp, movement, label, x, y, z });
   document.getElementById('stats').innerHTML =
     'Samples in buffer: <strong>' + rows.length + '</strong>';
   document.getElementById('lastSample').textContent =
-    iso + '  label=' + label + '  X=' + x + ' Y=' + y + ' Z=' + z +
-    '  (m/s² ' + x_ms2.toFixed(3) + ', ' + y_ms2.toFixed(3) + ', ' + z_ms2.toFixed(3) + ')';
+    timestamp + '  label=' + label + '  X=' + x + ' Y=' + y + ' Z=' + z;
   document.getElementById('btnDownload').disabled = rows.length === 0;
 }
 
@@ -252,32 +245,8 @@ function disconnectBLE() {
 }
 
 function buildCsv() {
-  const header = [
-    'timestamp_iso',
-    'unix_ms',
-    'movement',
-    'label',
-    'X',
-    'Y',
-    'Z',
-    'X_ms2',
-    'Y_ms2',
-    'Z_ms2',
-  ].join(',');
-  const lines = rows.map(r =>
-    [
-      r.iso,
-      r.unix_ms,
-      csvCellStr(r.movement),
-      r.label,
-      r.x_lsb,
-      r.y_lsb,
-      r.z_lsb,
-      r.x_ms2.toFixed(6),
-      r.y_ms2.toFixed(6),
-      r.z_ms2.toFixed(6),
-    ].join(',')
-  );
+  const header = 'Timestamp,X,Y,Z';
+  const lines = rows.map(r => [r.timestamp, r.x, r.y, r.z].join(','));
   return header + '\n' + lines.join('\n') + '\n';
 }
 
