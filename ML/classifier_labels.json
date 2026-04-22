@@ -1,10 +1,10 @@
 {
   "labels": [
     "idle",
-    "clap",
+    "walk",
     "sixseven",
-    "dab",
-    "walking"
+    "wave",
+    "clap"
   ],
   "num_classes": 5
 }

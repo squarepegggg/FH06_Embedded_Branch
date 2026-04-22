@@ -8,12 +8,16 @@ from pathlib import Path
 
 print("TensorFlow:", tf.__version__)
 
-# Fixed set of classes (Matthew: all 6, Ronak: 5, Nikhil & Andres: 2 each)
-CLASSES = ["idle", "clap", "sixseven", "dab", "walking"]
+CLASSES = ["idle", "walk", "sixseven", "wave", "clap"]
 NUM_CLASSES = len(CLASSES)
 
-# Optional: map legacy/alternate labels into our class set (e.g. standing -> idle)
-LABEL_ALIASES = {"standing": "idle", "67": "sixseven"}
+# Map alternate/legacy labels onto canonical class names
+LABEL_ALIASES = {
+    "standing": "idle",
+    "67": "sixseven",
+    "walking": "walk",
+    "waving": "wave",
+}
 
 # Load CSV files and extract labels from filenames (only files matching CLASSES)
 def load_csv_data(csv_dir=None):
