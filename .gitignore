@@ -24,6 +24,18 @@ ei-v2/edge-impulse-sdk/
 desktop-app/
 
 # ──────────────────────────────────────────────
+#  Node.js / npm / Electron
+# ──────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+dist/
+out/
+
+# ──────────────────────────────────────────────
 #  macOS
 # ──────────────────────────────────────────────
 .DS_Store
