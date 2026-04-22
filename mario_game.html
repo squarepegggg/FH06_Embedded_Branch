@@ -380,11 +380,11 @@ let gameState = 'ready'; // 'ready' | 'playing' | 'gameover' | 'win'
 let startTime = 0;
 
 function resetMario(toSpawn = true) {
-  mario.x = 2 * TILE;
-  mario.y = (GROUND_ROW - 2) * TILE;
-  mario.vx = 0; mario.vy = 0;
   mario.power = 'small';
   setMarioSize();
+  mario.x = 2 * TILE;
+  mario.y = GROUND_ROW * TILE - mario.h;
+  mario.vx = 0; mario.vy = 0;
   mario.walkUntil = 0;
   mario.onGround = false;
   mario.lastFire = 0;
@@ -437,11 +437,11 @@ function triggerJump() {
   if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
   if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
   if (gameState !== 'playing') return;
+  mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
   if (mario.onGround) {
     mario.vy = JUMP_VEL;
     mario.vx = WALK_SPEED;
     mario.onGround = false;
-    mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
   }
 }
 function triggerPowerup() {
