@@ -358,6 +358,7 @@ const mario = {
   w: 12, h: 28,
   power: 'small',       // 'small' | 'big' | 'fire'
   walkUntil: 0,
+  jumpingForward: false,
   onGround: false,
   lastFire: 0,
   invulnUntil: 0,
@@ -386,6 +387,7 @@ function resetMario(toSpawn = true) {
   mario.y = GROUND_ROW * TILE - mario.h;
   mario.vx = 0; mario.vy = 0;
   mario.walkUntil = 0;
+  mario.jumpingForward = false;
   mario.onGround = false;
   mario.lastFire = 0;
   mario.invulnUntil = 0;
@@ -437,11 +439,11 @@ function triggerJump() {
   if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
   if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
   if (gameState !== 'playing') return;
-  mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
   if (mario.onGround) {
     mario.vy = JUMP_VEL;
     mario.vx = WALK_SPEED;
     mario.onGround = false;
+    mario.jumpingForward = true;
   }
 }
 function triggerPowerup() {
@@ -794,8 +796,12 @@ function update(dt) {
 
   // Mario horizontal — walking window drives vx
   const walking = now < mario.walkUntil;
-  if (mario.onGround) mario.vx = walking ? WALK_SPEED : 0;
-  // (if airborne, keep the vx we had at takeoff = "momentum")
+  if (mario.onGround) {
+    mario.vx = walking ? WALK_SPEED : 0;
+    mario.jumpingForward = false;
+  } else if (mario.jumpingForward) {
+    mario.vx = WALK_SPEED;  // re-enforce each frame so pipe X-collisions can't zero it out
+  }
 
   // Enforce "can't go backwards"
   if (mario.vx < 0) mario.vx = 0;
