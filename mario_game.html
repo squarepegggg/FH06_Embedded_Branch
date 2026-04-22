@@ -122,7 +122,7 @@
 
 <h1>🍄 Super Mario</h1>
 <p class="subtitle">
-  🚶 walk = move forward &nbsp;·&nbsp; ⁶🤷⁷ 6-7 = jump &nbsp;·&nbsp; 👏 clap = fireball (Fire-Mario only)
+  🚶 walk / 👏 clap = move forward &nbsp;·&nbsp; ⁶🤷⁷ 6-7 = jump &nbsp;·&nbsp; 💫 spin = power up
 </p>
 
 <div class="conn-bar">
@@ -157,10 +157,11 @@ const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
 const LATENCY_SENTINEL = 0xFFFFFFFF;
 
 // model.py CLASSES order
-const ACTIVITIES  = ['idle', 'clap', 'sixseven', 'spin', 'walking'];
-const LABEL_CLAP  = 1;
-const LABEL_JUMP  = 2;  // sixseven
-const LABEL_WALK  = 4;
+const ACTIVITIES    = ['idle', 'clap', 'sixseven', 'spin', 'walking'];
+const LABEL_CLAP    = 1;   // → walk
+const LABEL_JUMP    = 2;   // sixseven
+const LABEL_POWERUP = 3;   // spin
+const LABEL_WALK    = 4;
 
 let device = null;
 let characteristic = null;
@@ -184,7 +185,7 @@ function onNotification(event) {
   /* Fresh sliding-window inference, or cached-label stream (firmware sentinel). */
   const isFreshInference = inferenceUs !== LATENCY_SENTINEL;
   const isCachedStream   = inferenceUs === LATENCY_SENTINEL;
-  const playable = label === LABEL_WALK || label === LABEL_JUMP || label === LABEL_CLAP;
+  const playable = label === LABEL_WALK || label === LABEL_JUMP || label === LABEL_CLAP || label === LABEL_POWERUP;
 
   if (isFreshInference || (isCachedStream && (playable || label === 0))) {
     handlePrediction(label);
@@ -199,7 +200,7 @@ function handlePrediction(label) {
   const prev = prevBleLabel;
   prevBleLabel = label;
 
-  if (label === LABEL_WALK) {
+  if (label === LABEL_WALK || label === LABEL_CLAP) {
     el.classList.add('walk');
     triggerWalk();
     return;
@@ -209,10 +210,10 @@ function handlePrediction(label) {
     triggerJump();  // triggerJump guards onGround; no rising-edge needed here
     return;
   }
-  if (label === LABEL_CLAP) {
+  if (label === LABEL_POWERUP) {
     el.classList.add('fire');
-    if (prev !== LABEL_CLAP) {
-      triggerFire();
+    if (prev !== LABEL_POWERUP) {
+      triggerPowerup();
     }
     return;
   }
@@ -436,7 +437,21 @@ function triggerJump() {
   if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
   if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
   if (gameState !== 'playing') return;
-  if (mario.onGround) { mario.vy = JUMP_VEL; mario.onGround = false; }
+  if (mario.onGround) { mario.vy = JUMP_VEL; mario.vx = WALK_SPEED; mario.onGround = false; }
+}
+function triggerPowerup() {
+  if (gameState !== 'playing') return;
+  if (mario.power === 'small') {
+    mario.power = 'big';
+    setMarioSize();
+    mario.y -= 14;  // keep feet on ground after growing
+    log('🍄 Power up!', 'game');
+  } else if (mario.power === 'big') {
+    mario.power = 'fire';
+    setMarioSize();
+    log('🌼 Fire power!', 'game');
+  }
+  // 'fire' is max — no-op
 }
 function triggerFire() {
   if (gameState !== 'playing') return;
