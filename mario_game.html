@@ -437,7 +437,12 @@ function triggerJump() {
   if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
   if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
   if (gameState !== 'playing') return;
-  if (mario.onGround) { mario.vy = JUMP_VEL; mario.vx = WALK_SPEED; mario.onGround = false; }
+  if (mario.onGround) {
+    mario.vy = JUMP_VEL;
+    mario.vx = WALK_SPEED;
+    mario.onGround = false;
+    mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
+  }
 }
 function triggerPowerup() {
   if (gameState !== 'playing') return;
