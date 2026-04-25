@@ -122,7 +122,7 @@
 
 <h1>🍄 Super Mario</h1>
 <p class="subtitle">
-  ⁶🤷⁷ 6-7 = move forward &nbsp;·&nbsp; 👏 clap = jump &nbsp;·&nbsp; 👋 wave = power up
+  ⁶🤷⁷ 6-7 = move forward &nbsp;·&nbsp; 👏 clap = jump &nbsp;·&nbsp; 👋 wave = power up / fireball
 </p>
 
 <div class="conn-bar">
@@ -145,6 +145,7 @@
 
 <div class="info-bar">
   <div class="gesture-status" id="gestureStatus">No gesture yet</div>
+  <button id="btnMute" class="secondary" onclick="toggleMute()">🔊 Sound</button>
   <div class="hint-txt">⌨️ → walk · ↑/Space jump · ↓ fire</div>
 </div>
 
@@ -167,12 +168,174 @@ let device = null;
 let characteristic = null;
 /** Previous BLE activity label (-1 = none yet). Used for jump/clap rising-edge so one gesture = one action. */
 let prevBleLabel = -1;
+/** Consecutive wave labels seen. We require 2 before acting so single-frame misclassifications don't trigger a random powerup. */
+let waveStreak = 0;
+let lastWaveAction = 0;
+const WAVE_CONFIRM_FRAMES = 2;
+const WAVE_COOLDOWN_MS    = 800;
 
 function log(msg, cls = '') {
   const el = document.getElementById('log');
   const now = new Date().toLocaleTimeString('en-US', { hour12: false });
   el.innerHTML += `<div class="entry"><span class="ts">${now}</span><span class="msg ${cls}">${msg}</span></div>`;
   el.scrollTop = el.scrollHeight;
+}
+
+// ── Audio (Web Audio synth — no external files) ────────────
+let audioCtx = null;
+let muted = false;
+let musicLoopId = null;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return; }
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playTone(freq, dur, type = 'square', vol = 0.08, when = 0) {
+  if (muted || !audioCtx) return;
+  const t0 = audioCtx.currentTime + when;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+function playSweep(fStart, fEnd, dur, vol = 0.08) {
+  if (muted) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(fStart, t0);
+  osc.frequency.linearRampToValueAtTime(fEnd, t0 + dur);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+function sfxJump()  { ensureAudio(); playSweep(440, 920, 0.16, 0.09); }
+function sfxFire()  { ensureAudio(); playSweep(720, 180, 0.09, 0.08); }
+function sfxStomp() {
+  if (muted) return;
+  ensureAudio(); if (!audioCtx) return;
+  // short white-noise thud
+  const t0 = audioCtx.currentTime;
+  const buf = audioCtx.createBuffer(1, (audioCtx.sampleRate * 0.08) | 0, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.12;
+  src.connect(gain).connect(audioCtx.destination);
+  src.start(t0);
+}
+function sfxCoin() {
+  ensureAudio();
+  playTone(987.77,  0.06, 'square', 0.08, 0);
+  playTone(1318.51, 0.18, 'square', 0.08, 0.06);
+}
+function sfxPowerup() {
+  ensureAudio();
+  const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1568.00];
+  let t = 0;
+  for (const f of notes) { playTone(f, 0.07, 'square', 0.09, t); t += 0.055; }
+}
+function sfxDamage() {
+  ensureAudio();
+  playTone(392.00, 0.14, 'square', 0.10, 0);
+  playTone(261.63, 0.24, 'square', 0.10, 0.14);
+}
+function sfxGameOver() {
+  ensureAudio();
+  const notes = [[523.25,0.22],[392.00,0.22],[329.63,0.3],[261.63,0.55]];
+  let t = 0;
+  for (const [f, d] of notes) { playTone(f, d, 'square', 0.10, t); t += d; }
+}
+function sfxWin() {
+  ensureAudio();
+  // classic level-clear stinger
+  const notes = [[659.25,0.12],[659.25,0.12],[659.25,0.12],[523.25,0.12],[659.25,0.12],[783.99,0.3],[392.00,0.3]];
+  let t = 0;
+  for (const [f, d] of notes) { playTone(f, d, 'square', 0.10, t); t += d; }
+}
+
+// Mario overworld theme — hand-transcribed melody, loops about every ~22s
+const _E5=659.25,  _G5=783.99,  _C5=523.25,  _G4=392.00, _A4=440.00, _B4=493.88,
+      _Bb4=466.16, _E4=329.63,  _F5=698.46,  _D5=587.33, _A5=880.00, _B5=987.77,
+      _C6=1046.50, _D6=1174.66, _E6=1318.51, _F6=1396.91, _Gs5=830.61, _Fs5=739.99;
+const THEME = [
+  // A1 — iconic opening riff
+  [_E5,1],[_E5,1],[0,1],[_E5,1],[0,1],[_C5,1],[_E5,1],[0,1],
+  [_G5,2],[0,2],[_G4,2],[0,2],
+
+  // A2 — the descending legato line
+  [_C5,2],[0,1],[_G4,2],[0,1],[_E4,2],[0,2],
+  [_A4,2],[_B4,1],[_Bb4,1],[_A4,2],[0,1],
+
+  // A3 — the ascending ornament
+  [_G4,1],[_E5,1],[_G5,1],[_A5,1],[_F5,1],[_G5,1],[0,1],[_E5,1],
+  [_C5,1],[_D5,1],[_B4,2],[0,2],
+
+  // A2' — repeat of descending line
+  [_C5,2],[0,1],[_G4,2],[0,1],[_E4,2],[0,2],
+  [_A4,2],[_B4,1],[_Bb4,1],[_A4,2],[0,1],
+
+  // A3' — repeat of ascending ornament
+  [_G4,1],[_E5,1],[_G5,1],[_A5,1],[_F5,1],[_G5,1],[0,1],[_E5,1],
+  [_C5,1],[_D5,1],[_B4,2],[0,2],
+
+  // B1 — higher octave "bridge" section
+  [0,2],[_E5,1],[_C6,1],[0,1],[_G5,1],[_Gs5,1],[_A5,1],
+  [_F6,1],[_F6,1],[_A5,2],[0,2],
+  [_E5,1],[_C6,1],[0,1],[_G5,1],[_Gs5,1],[_A5,1],
+  [_B5,1],[_A5,1],[_Gs5,1],[_G5,1],[0,2],
+
+  // B2 — descending back toward the main theme
+  [_E5,1],[_C5,1],[_A4,1],[_G4,1],[_B4,2],[_C5,2],[0,2],
+
+  // A1 reprise — closes the loop back into the opening
+  [_E5,1],[_E5,1],[0,1],[_E5,1],[0,1],[_C5,1],[_E5,1],[0,1],
+  [_G5,2],[0,2],[_G4,2],[0,2],
+  [0,4],  // short rest before the loop restarts so it breathes
+];
+const BEAT = 0.155;
+
+function scheduleTheme() {
+  if (muted || !audioCtx) { musicLoopId = null; return; }
+  let t = 0;
+  for (const [f, b] of THEME) {
+    if (f > 0) playTone(f, BEAT * b * 0.92, 'square', 0.045, t);
+    t += BEAT * b;
+  }
+  musicLoopId = setTimeout(scheduleTheme, Math.max(100, t * 1000));
+}
+function startMusic() {
+  if (musicLoopId) return;
+  ensureAudio();
+  if (!audioCtx || muted) return;
+  scheduleTheme();
+}
+function stopMusic() {
+  if (musicLoopId) { clearTimeout(musicLoopId); musicLoopId = null; }
+}
+function toggleMute() {
+  muted = !muted;
+  const btn = document.getElementById('btnMute');
+  if (btn) btn.textContent = muted ? '🔇 Sound' : '🔊 Sound';
+  if (muted) stopMusic();
+  else if (gameState === 'playing') startMusic();
 }
 
 function onNotification(event) {
@@ -200,6 +363,13 @@ function handlePrediction(label) {
   const prev = prevBleLabel;
   prevBleLabel = label;
 
+  // Stop forward motion immediately on any non-walk label so Mario doesn't coast.
+  if (label !== LABEL_WALK_BLE && label !== LABEL_SIXSEVEN) {
+    mario.walkUntil = 0;
+  }
+  // Reset wave streak on any non-wave label so only truly sustained waves count.
+  if (label !== LABEL_WAVE) waveStreak = 0;
+
   if (label === LABEL_WALK_BLE || label === LABEL_SIXSEVEN) {
     el.classList.add('walk');
     triggerWalk();
@@ -207,13 +377,21 @@ function handlePrediction(label) {
   }
   if (label === LABEL_CLAP) {
     el.classList.add('jump');
-    triggerJump();
+    if (prev !== LABEL_CLAP) {
+      triggerJump();
+    }
     return;
   }
   if (label === LABEL_WAVE) {
     el.classList.add('fire');
-    if (prev !== LABEL_WAVE) {
-      triggerPowerup();
+    waveStreak++;
+    const now = performance.now();
+    // Require 2+ consecutive wave packets + cooldown so one sustained wave triggers exactly once.
+    if (waveStreak >= WAVE_CONFIRM_FRAMES && now - lastWaveAction > WAVE_COOLDOWN_MS) {
+      lastWaveAction = now;
+      // Context-sensitive: shoot a fireball once at max power, otherwise level up.
+      if (mario.power === 'fire') triggerFire();
+      else                         triggerPowerup();
     }
     return;
   }
@@ -221,6 +399,7 @@ function handlePrediction(label) {
 
 async function connectBLE() {
   try {
+    ensureAudio();  // browser requires a user gesture to unlock audio
     log('Scanning for AccelDevice…', 'conn');
     device = await navigator.bluetooth.requestDevice({
       filters: [{ name: 'AccelDevice' }],
@@ -253,6 +432,8 @@ function setConnected(connected) {
   document.getElementById('btnDisconnect').disabled = !connected;
   if (!connected) {
     prevBleLabel = -1;
+    waveStreak = 0;
+    lastWaveAction = 0;
   }
 }
 
@@ -266,10 +447,11 @@ const GROUND_ROW = 13;
 const SKY_ROWS_ABOVE_GROUND = GROUND_ROW;      // rows 0-12 are sky/air
 
 const GRAVITY          = 0.4;
-const WALK_SPEED       = 1.0;    // px/frame ≈ 60 px/s (SMB-ish)
+const WALK_SPEED       = 0.5;    // px/frame — walking pace (halved per user request)
+const JUMP_FORWARD_SPEED = 1.0;  // px/frame — horizontal speed while in air; kept at full so pits stay jumpable
 const JUMP_VEL         = -7.5;   // max jump ~70 px ≈ 4.4 tiles
 const MAX_FALL         = 8;
-const WALK_WINDOW_MS   = 700;    // each walking prediction grants 700ms forward
+const WALK_WINDOW_MS   = 200;    // wall-clock forward window per gesture packet; cleared on non-walk label
 const FIRE_COOLDOWN_MS = 350;
 const FIREBALL_SPEED   = 2.4;
 const FIREBALL_LIFE_MS = 1400;
@@ -281,45 +463,150 @@ const TIMER_START      = 300;
 const STOMP_BOUNCE_VEL = -5.5;
 /** 1 = normal speed; 0.5 = half simulation tick rate (physics + level timer). */
 const GAME_SPEED       = 0.5;
+/** Standing still on the ground for this long flips Mario's facing direction —
+ *  the only way to traverse "backwards" given the BLE gesture model has no
+ *  backward walk. */
+const IDLE_FLIP_MS     = 3000;
 
 // ── Level definition ───────────────────────────────────────
 // All coords are in TILES; game world is 64 × 14 tiles = 1024 × 224 px
-const pits = [
-  { x: 12, w: 2 },
-  { x: 30, w: 2 },
-  { x: 45, w: 2 },
-  { x: 53, w: 2 },
-];
-const pipes = [
-  { x: 17, h: 2 },
-  { x: 36, h: 3 },
-];
-// qBlocks: y=9 is floating-block height (4 tiles above ground)
-const qBlocks = [
-  { x: 5,  y: 9, used: false },
-  { x: 9,  y: 9, used: false },
-  { x: 24, y: 9, used: false },
-  { x: 40, y: 9, used: false },
-  { x: 48, y: 9, used: false },
-];
-const enemySpawns = [
-  { x: 7,  type: 'goomba' },
-  { x: 14, type: 'goomba' },
-  { x: 20, type: 'koopa'  },
-  { x: 27, type: 'goomba' },
-  { x: 28, type: 'goomba' },
-  { x: 38, type: 'koopa'  },
-  { x: 42, type: 'goomba' },
-  { x: 49, type: 'koopa'  },
-  { x: 50, type: 'goomba' },
-];
-const FLAG_TILE_X = 61;
+// Level data is swapped via loadLevel() so the same tile/physics code drives
+// both the World 1-1 overworld and the Bowser castle in 2-1.
+const LEVEL_DEFS = {
+  1: {
+    pits: [
+      { x: 12, w: 2 },
+      { x: 30, w: 2 },
+      { x: 45, w: 2 },
+      { x: 53, w: 2 },
+    ],
+    pipes: [
+      { x: 17, h: 2 },
+      { x: 36, h: 3 },
+    ],
+    qBlocks: [
+      { x: 5,  y: 9 },
+      { x: 9,  y: 9 },
+      { x: 24, y: 9 },
+      { x: 40, y: 9 },
+      { x: 48, y: 9 },
+    ],
+    enemySpawns: [
+      { x: 7,  type: 'goomba' },
+      { x: 14, type: 'goomba' },
+      { x: 20, type: 'koopa'  },
+      { x: 27, type: 'goomba' },
+      { x: 28, type: 'goomba' },
+      { x: 38, type: 'koopa'  },
+      { x: 42, type: 'goomba' },
+      { x: 49, type: 'koopa'  },
+      { x: 50, type: 'goomba' },
+    ],
+    flagTileX: 61,
+    theme: 'overworld',
+    bossSpec: null,
+    peachSpec: null,
+    worldLabel: '1-1',
+  },
+  2: {
+    // Bowser's castle: no pipes; lava in the pit slots (visuals); guaranteed
+    // fire flower in the first ?-block so the player can damage Bowser.
+    pits: [
+      { x: 16, w: 2 },
+      { x: 28, w: 2 },
+    ],
+    pipes: [],
+    qBlocks: [
+      { x: 5,  y: 9, content: 'flower' },
+      { x: 14, y: 9 },
+    ],
+    enemySpawns: [
+      { x: 10, type: 'goomba' },
+      { x: 12, type: 'goomba' },
+      { x: 20, type: 'koopa'  },
+      { x: 23, type: 'goomba' },
+      { x: 25, type: 'goomba' },
+      { x: 32, type: 'koopa'  },
+    ],
+    flagTileX: -1,        // no flagpole; victory comes from rescuing Peach
+    theme: 'castle',
+    bossSpec: { tileX: 45, hp: 3 },
+    peachSpec: { tileX: 58 },
+    worldLabel: '2-1',
+  },
+};
+
+let currentLevel = 1;
+let pits = [];
+let pipes = [];
+let qBlocks = [];
+let enemySpawns = [];
+let FLAG_TILE_X = 61;
+let levelTheme = 'overworld';
+let levelWorldLabel = '1-1';
+
+function loadLevel(n) {
+  const def = LEVEL_DEFS[n] || LEVEL_DEFS[1];
+  // Deep-copy the lists so per-run mutations (q.used, etc.) don't leak across
+  // resets — JS object spread is shallow, but these entries are flat.
+  pits         = def.pits.map(o => ({ ...o }));
+  pipes        = def.pipes.map(o => ({ ...o }));
+  qBlocks      = def.qBlocks.map(o => ({ ...o, used: false }));
+  enemySpawns  = def.enemySpawns.map(o => ({ ...o }));
+  FLAG_TILE_X  = def.flagTileX;
+  levelTheme   = def.theme;
+  levelWorldLabel = def.worldLabel;
+  currentLevel = n;
+  // Boss + Peach: only present in level 2.
+  if (def.bossSpec) {
+    boss = {
+      x: def.bossSpec.tileX * TILE,
+      y: (GROUND_ROW - 2) * TILE,
+      vx: -0.4, vy: 0,
+      w: 24, h: 28,
+      hp: def.bossSpec.hp,
+      maxHp: def.bossSpec.hp,
+      dead: false,
+      hurtUntil: 0,
+      lastFire: 0,
+      lastJump: 0,
+      animFrame: 0,
+      onGround: false,
+      facing: -1,
+    };
+  } else {
+    boss = null;
+  }
+  if (def.peachSpec) {
+    peach = {
+      x: def.peachSpec.tileX * TILE,
+      y: (GROUND_ROW - 2) * TILE,
+      w: 12, h: 28,
+      freed: false,
+    };
+    cage = {
+      leftX: (def.peachSpec.tileX - 1) * TILE,
+      rightX: (def.peachSpec.tileX + 2) * TILE,
+      topY: (GROUND_ROW - 4) * TILE,
+      broken: false,
+    };
+  } else {
+    peach = null;
+    cage = null;
+  }
+  hostileFireballs = [];
+}
 
 // ── Tile grid (solid tiles) ────────────────────────────────
 const grid = [];
 for (let y = 0; y < LEVEL_ROWS; y++) grid.push(new Array(LEVEL_COLS).fill(null));
 
 function buildGrid() {
+  // Clear any tiles from a previous level — required because loadLevel can
+  // change pit positions, and the cells from the prior layout would otherwise
+  // still be solid.
+  for (let y = 0; y < LEVEL_ROWS; y++)
+    for (let x = 0; x < LEVEL_COLS; x++) grid[y][x] = null;
   // Ground row (skip pit columns)
   for (let x = 0; x < LEVEL_COLS; x++) {
     const inPit = pits.some(p => x >= p.x && x < p.x + p.w);
@@ -355,7 +642,7 @@ function isSolidAt(tx, ty) {
 const mario = {
   x: 2 * TILE, y: (GROUND_ROW - 2) * TILE,
   vx: 0, vy: 0,
-  w: 12, h: 28,
+  w: 12, h: 14,
   power: 'small',       // 'small' | 'big' | 'fire'
   walkUntil: 0,
   jumpingForward: false,
@@ -364,14 +651,19 @@ const mario = {
   invulnUntil: 0,
   dead: false,
   won: false,
-  facing: 1,
+  facing: 1,            // +1 = right, -1 = left
+  idleStart: 0,         // wall-clock ms since Mario went idle on ground; 0 = not idle
   animFrame: 0,
 };
 
 let enemies  = [];    // { x, y, vx, vy, w, h, type, dead, state, ... }
 let items    = [];    // { x, y, vx, vy, w, h, kind:'mushroom'|'flower', alive }
-let fireballs = [];   // { x, y, vx, vy, life, alive }
+let fireballs = [];   // Mario's fireballs: { x, y, vx, vy, life, alive }
+let hostileFireballs = []; // Bowser's fireballs (damage Mario, not enemies)
 let particles = [];   // little score popups
+let boss = null;      // level 2 only — Bowser
+let peach = null;     // level 2 only — Princess Peach
+let cage = null;      // level 2 only — cage around Peach
 
 let score = 0;
 let coins = 0;
@@ -379,9 +671,11 @@ let timeLeft = TIMER_START;
 let lastTimeTick = 0;
 let gameState = 'ready'; // 'ready' | 'playing' | 'gameover' | 'win'
 let startTime = 0;
+/** Block powerup gestures briefly after restart so cached BLE wave packets can't instantly grow Mario. */
+let powerupGraceUntil = 0;
 
-function resetMario(toSpawn = true) {
-  mario.power = 'small';
+function resetMario(keepPower = false) {
+  if (!keepPower) mario.power = 'small';
   setMarioSize();
   mario.x = 2 * TILE;
   mario.y = GROUND_ROW * TILE - mario.h;
@@ -393,21 +687,26 @@ function resetMario(toSpawn = true) {
   mario.invulnUntil = 0;
   mario.dead = false;
   mario.won = false;
+  mario.facing = 1;
+  mario.idleStart = 0;
 }
 function setMarioSize() {
   if (mario.power === 'small') { mario.w = 12; mario.h = 14; }
   else                         { mario.w = 12; mario.h = 28; }
 }
 
-function resetLevel() {
-  for (const q of qBlocks) q.used = false;
+function resetLevel(keepPower = false, keepScore = false) {
+  loadLevel(currentLevel);
   buildGrid();
   enemies = enemySpawns.map(s => spawnEnemy(s));
-  items = []; fireballs = []; particles = [];
-  score = 0; coins = 0; timeLeft = TIMER_START;
+  items = []; fireballs = []; hostileFireballs = []; particles = [];
+  if (!keepScore) { score = 0; coins = 0; }
+  timeLeft = TIMER_START;
   lastTimeTick = performance.now();
-  resetMario();
+  resetMario(keepPower);
   gameState = 'ready';
+  powerupGraceUntil = performance.now() + 1500;
+  stopMusic();
   updateHUD();
 }
 
@@ -431,32 +730,56 @@ function spawnEnemy(spec) {
 
 // ── Controls ───────────────────────────────────────────────
 function triggerWalk() {
-  if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
+  if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); startMusic(); }
   if (gameState !== 'playing') return;
-  mario.walkUntil = performance.now() + WALK_WINDOW_MS / GAME_SPEED;
+  mario.walkUntil = performance.now() + WALK_WINDOW_MS;
 }
 function triggerJump() {
-  if (gameState === 'gameover' || gameState === 'win') { resetLevel(); return; }
-  if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); }
+  if (gameState === 'gameover') {
+    // Death always restarts at level 1 from scratch.
+    currentLevel = 1;
+    resetLevel(false, false);
+    return;
+  }
+  if (gameState === 'win') {
+    if (currentLevel === 1) {
+      // Advance to Bowser's castle, keeping Mario's power-up and score.
+      currentLevel = 2;
+      resetLevel(true, true);
+      log('🏰 World 2-1: Bowser\'s Castle!', 'win');
+    } else {
+      // Final win → full restart.
+      currentLevel = 1;
+      resetLevel(false, false);
+    }
+    return;
+  }
+  if (gameState === 'ready') { gameState = 'playing'; startTime = performance.now(); lastTimeTick = startTime; log('Here we go!', 'game'); startMusic(); }
   if (gameState !== 'playing') return;
   if (mario.onGround) {
     mario.vy = JUMP_VEL;
-    mario.vx = WALK_SPEED;
+    mario.vx = JUMP_FORWARD_SPEED * mario.facing;
     mario.onGround = false;
     mario.jumpingForward = true;
+    sfxJump();
   }
 }
 function triggerPowerup() {
   if (gameState !== 'playing') return;
+  if (performance.now() < powerupGraceUntil) return;
   if (mario.power === 'small') {
     mario.power = 'big';
     setMarioSize();
     mario.y -= 14;  // keep feet on ground after growing
+    mario.invulnUntil = performance.now() + 600;  // brief flash as visual feedback
     log('🍄 Power up!', 'game');
+    sfxPowerup();
   } else if (mario.power === 'big') {
     mario.power = 'fire';
     setMarioSize();
+    mario.invulnUntil = performance.now() + 600;
     log('🌼 Fire power!', 'game');
+    sfxPowerup();
   }
   // 'fire' is max — no-op
 }
@@ -467,11 +790,13 @@ function triggerFire() {
   if (now - mario.lastFire < FIRE_COOLDOWN_MS) return;
   if (fireballs.filter(f => f.alive).length >= 2) return;
   fireballs.push({
-    x: mario.x + mario.w, y: mario.y + mario.h / 2,
-    vx: FIREBALL_SPEED, vy: 0, w: 6, h: 6,
+    x: mario.facing > 0 ? mario.x + mario.w : mario.x - 6,
+    y: mario.y + mario.h / 2,
+    vx: FIREBALL_SPEED * mario.facing, vy: 0, w: 6, h: 6,
     life: FIREBALL_LIFE_MS, alive: true, birth: now,
   });
   mario.lastFire = now;
+  sfxFire();
 }
 
 // Keyboard fallback
@@ -508,6 +833,15 @@ function moveEntityX(e, dx) {
       else if (dx < 0) e.x = (tx + 1) * TILE;
       e.vx = 0;
       return { blocked: true, tx, ty };
+    }
+  }
+  // Intact cage wall blocks Mario only — enemies/items pass through (they
+  // never reach the cage anyway). Once Bowser dies the cage shatters.
+  if (e === mario && cage && !cage.broken) {
+    if (dx > 0 && e.x + e.w > cage.leftX && e.x < cage.leftX) {
+      e.x = cage.leftX - e.w;
+      e.vx = 0;
+      return { blocked: true };
     }
   }
   return { blocked: false };
@@ -551,17 +885,21 @@ function hitQBlock(q, tx, ty) {
   if (q.used) return;
   q.used = true;
   grid[ty][tx] = 'used';
-  // Spawn item based on Mario's power
-  const kind = mario.power === 'small' ? 'mushroom' : 'flower';
+  // Spawn item: q.content forces a specific item (used in level 2 to guarantee
+  // the player gets a fire flower); otherwise scale to Mario's current power.
+  const kind = q.content
+    ? q.content
+    : (mario.power === 'small' ? 'mushroom' : 'flower');
   items.push({
     x: tx * TILE + 2, y: ty * TILE - 14,
-    vx: kind === 'mushroom' ? 0.5 : 0, vy: -2,
+    vx: kind === 'mushroom' ? 0.5 : 0.35, vy: -2,
     w: 12, h: 14,
     kind, alive: true,
     rising: true, riseUntil: performance.now() + 450,
   });
   addScorePop(tx * TILE, ty * TILE, 100);
   score += 100;
+  sfxCoin();
 }
 
 // ── Item update (mushroom / flower) ────────────────────────
@@ -574,10 +912,12 @@ function updateItems(dt) {
       if (now >= it.riseUntil) { it.rising = false; it.vy = 0; }
       continue;
     }
-    if (it.kind === 'mushroom') {
+    if (it.kind === 'mushroom' || it.kind === 'flower') {
       it.vy += GRAVITY * dt;
       if (it.vy > MAX_FALL) it.vy = MAX_FALL;
-      moveEntityX(it, it.vx * dt);
+      const prevVx = it.vx;
+      const xres = moveEntityX(it, it.vx * dt);
+      if (xres.blocked) it.vx = -prevVx;  // bounce off walls (moveEntityX zeroes vx, so use prev direction)
       const res = moveEntityY(it, it.vy * dt);
       if (res.blocked && res.dir === 'down') it.vy = 0;
       // Fall in pit → remove
@@ -597,12 +937,14 @@ function collectItem(it) {
     score += 1000;
     addScorePop(it.x, it.y, 1000);
     log('🍄 Mushroom!', 'game');
+    sfxPowerup();
   } else {
     mario.power = 'fire'; setMarioSize();
     if (mario.power === 'fire' && mario.h === 28) {} // no height change from big->fire
     score += 1000;
     addScorePop(it.x, it.y, 1000);
     log('🌼 Fire Flower!', 'game');
+    sfxPowerup();
   }
 }
 
@@ -640,6 +982,113 @@ function updateFireballs(dt) {
         break;
       }
     }
+
+    // Boss collision (level 2). Fireballs are the canonical way to damage Bowser.
+    if (f.alive && boss && !boss.dead && performance.now() >= boss.hurtUntil) {
+      if (aabbOverlap(f, boss)) {
+        damageBoss();
+        f.alive = false;
+      }
+    }
+  }
+}
+
+function damageBoss() {
+  if (!boss || boss.dead) return;
+  boss.hp--;
+  boss.hurtUntil = performance.now() + BOSS_HURT_FLASH_MS;
+  score += 200;
+  addScorePop(boss.x, boss.y, 200);
+  sfxStomp();
+  if (boss.hp <= 0) {
+    boss.dead = true;
+    log('🔥 Bowser defeated!', 'win');
+    // Brief delay before the cage shatters so the player sees the kill register.
+    setTimeout(() => {
+      if (cage)  cage.broken = true;
+      if (peach) peach.freed = true;
+    }, 700);
+  } else {
+    log(`💢 Bowser hit! (${boss.hp} HP left)`, 'game');
+  }
+}
+
+// ── Bowser (boss) update ──────────────────────────────────
+// Bowser paces inside an arena, occasionally hops, and lobs an arcing
+// fireball at Mario. Three fireball/stomp hits and he's done.
+const BOSS_ARENA_LEFT_TILE  = 38;
+const BOSS_ARENA_RIGHT_TILE = 56;
+const BOSS_FIRE_INTERVAL_MS = 2000;
+const BOSS_JUMP_INTERVAL_MS = 3500;
+const BOSS_SPEED            = 0.35;
+const BOSS_HURT_FLASH_MS    = 600;
+
+function updateBoss(dt) {
+  if (!boss || boss.dead) return;
+  const now = performance.now();
+  boss.animFrame++;
+
+  // Gravity
+  boss.vy = Math.min(boss.vy + GRAVITY * dt, MAX_FALL);
+
+  // AI: chase Mario but stay inside the arena rectangle.
+  const arenaLeft  = BOSS_ARENA_LEFT_TILE  * TILE;
+  const arenaRight = BOSS_ARENA_RIGHT_TILE * TILE;
+  if (boss.x < arenaLeft) {
+    boss.vx = BOSS_SPEED;
+  } else if (boss.x + boss.w > arenaRight) {
+    boss.vx = -BOSS_SPEED;
+  } else {
+    const dir = Math.sign(mario.x - boss.x) || -1;
+    boss.vx = dir * BOSS_SPEED;
+  }
+  boss.facing = boss.vx < 0 ? -1 : 1;
+
+  // Occasional little hop, but only when grounded (avoids double-jumps).
+  if (boss.onGround && now - boss.lastJump > BOSS_JUMP_INTERVAL_MS) {
+    boss.vy = -4.5;
+    boss.lastJump = now;
+  }
+
+  moveEntityX(boss, boss.vx * dt);
+  moveEntityY(boss, boss.vy * dt);
+  // moveEntityY maintains boss.onGround for us via its feet-row check.
+
+  // Fireball cadence (real wall-clock, so GAME_SPEED doesn't change difficulty).
+  if (now - boss.lastFire > BOSS_FIRE_INTERVAL_MS) {
+    boss.lastFire = now;
+    const dir = Math.sign(mario.x - boss.x) || -1;
+    hostileFireballs.push({
+      x: boss.x + (dir > 0 ? boss.w : -8),
+      y: boss.y + 6,
+      vx: dir * 1.4,
+      vy: -1.2,            // upward arc — falls into Mario's lane
+      w: 8, h: 8,
+      alive: true,
+      birth: now,
+      life: 3500,
+    });
+    sfxFire();
+  }
+}
+
+function updateHostileFireballs(dt) {
+  const now = performance.now();
+  for (const f of hostileFireballs) {
+    if (!f.alive) continue;
+    if (now - f.birth > f.life) { f.alive = false; continue; }
+    moveEntityX(f, f.vx * dt);
+    f.vy += GRAVITY * 0.6 * dt;
+    const res = moveEntityY(f, f.vy * dt);
+    if (res.blocked && res.dir === 'down') f.vy = -3;     // bounce
+    else if (res.blocked && res.dir === 'up') f.alive = false;
+    if (f.y > VIEW_H + 40) f.alive = false;
+
+    // Damage Mario on contact (respects existing invulnerability window).
+    if (f.alive && aabbOverlap(f, mario) && now >= mario.invulnUntil) {
+      damageMario();
+      f.alive = false;
+    }
   }
 }
 
@@ -671,16 +1120,18 @@ function updateEnemies(dt) {
         // about to walk off — just continue (SMB goombas fall); set a tiny chance to turn for koopas
         // Actually, classic SMB goombas fall into pits. Leave as-is.
       }
+      const prevVx = en.vx;
       const xres = moveEntityX(en, en.vx * dt);
-      if (xres.blocked) en.vx = -en.vx;
+      if (xres.blocked) en.vx = -prevVx;  // moveEntityX zeros vx on block; use prev direction to flip
       moveEntityY(en, en.vy * dt);
 
-      // Hit other enemies (turn around)
+      // Hit other enemies (turn around — push each away from the other)
       for (const other of enemies) {
         if (other === en || other.dead || !other.spawned) continue;
         if (other.state === 'shell_slide') continue;
         if (aabbOverlap(en, other)) {
-          en.vx = -Math.abs(en.vx) * Math.sign(en.x - other.x || 1);
+          const speed = en.kind === 'koopa' ? KOOPA_SPEED : ENEMY_SPEED;
+          en.vx = speed * Math.sign(en.x - other.x || 1);
         }
       }
     }
@@ -742,6 +1193,7 @@ function resolveMarioEnemy() {
       mario.vy = STOMP_BOUNCE_VEL;
       score += 100;
       addScorePop(en.x, en.y, 100);
+      sfxStomp();
       continue;
     }
 
@@ -749,17 +1201,31 @@ function resolveMarioEnemy() {
     if (invuln) continue;
     damageMario();
   }
+
+  // Boss collision (level 2). A clean stomp lands a hit; otherwise Mario takes
+  // damage like with any other enemy.
+  if (boss && !boss.dead && aabbOverlap(mario, boss)) {
+    const stomping = mario.vy > 0 && (mario.y + mario.h - boss.y) < 14;
+    if (stomping) {
+      mario.vy = STOMP_BOUNCE_VEL;
+      if (now >= boss.hurtUntil) damageBoss();
+    } else if (!invuln) {
+      damageMario();
+    }
+  }
 }
 
 function damageMario() {
-  if (mario.power === 'fire')      { mario.power = 'big';   setMarioSize(); mario.invulnUntil = performance.now() + DAMAGE_INVULN_MS; log('💥 Lost fire', 'err'); }
-  else if (mario.power === 'big')  { mario.power = 'small'; setMarioSize(); mario.y += 14; mario.invulnUntil = performance.now() + DAMAGE_INVULN_MS; log('💥 Shrunk', 'err'); }
+  if (mario.power === 'fire')      { mario.power = 'big';   setMarioSize(); mario.invulnUntil = performance.now() + DAMAGE_INVULN_MS; log('💥 Lost fire', 'err'); sfxDamage(); }
+  else if (mario.power === 'big')  { mario.power = 'small'; setMarioSize(); mario.y += 14; mario.invulnUntil = performance.now() + DAMAGE_INVULN_MS; log('💥 Shrunk', 'err'); sfxDamage(); }
   else                             { killMario(); }
 }
 function killMario() {
   mario.dead = true;
   gameState = 'gameover';
   log(`GAME OVER — score ${score}`, 'err');
+  stopMusic();
+  sfxGameOver();
 }
 
 // ── Utility ────────────────────────────────────────────────
@@ -779,6 +1245,7 @@ function getCameraX() {
 function updateHUD() {
   document.getElementById('hudScore').textContent = String(score).padStart(6, '0');
   document.getElementById('hudCoins').textContent = 'x' + String(coins).padStart(2, '0');
+  document.getElementById('hudWorld').textContent = levelWorldLabel;
   document.getElementById('hudTime').textContent  = String(Math.max(0, Math.ceil(timeLeft)));
 }
 
@@ -794,19 +1261,34 @@ function update(dt) {
   lastTimeTick = now;
   if (timeLeft <= 0) { timeLeft = 0; updateHUD(); killMario(); return; }
 
-  // Mario horizontal — walking window drives vx
+  // Mario horizontal — walking window drives vx, multiplied by facing so a
+  // "walk" gesture moves Mario in whichever direction he's currently facing.
   const walking = now < mario.walkUntil;
   if (mario.onGround) {
-    mario.vx = walking ? WALK_SPEED : 0;
+    mario.vx = walking ? WALK_SPEED * mario.facing : 0;
     mario.jumpingForward = false;
   } else if (mario.jumpingForward) {
-    mario.vx = WALK_SPEED;  // re-enforce each frame so pipe X-collisions can't zero it out
+    mario.vx = JUMP_FORWARD_SPEED * mario.facing;  // re-enforce each frame so pipe X-collisions can't zero it out
   }
 
-  // Enforce "can't go backwards"
-  if (mario.vx < 0) mario.vx = 0;
+  // Idle-flip: 3 seconds of standing still on the ground turns Mario around.
+  // This is the "backwards" affordance — there's no backward gesture, so the
+  // player flips by waiting. Skip while in the air or actively walking.
+  if (mario.onGround && !walking && Math.abs(mario.vx) < 0.01) {
+    if (mario.idleStart === 0) {
+      mario.idleStart = now;
+    } else if (now - mario.idleStart > IDLE_FLIP_MS) {
+      mario.facing = -mario.facing;
+      mario.idleStart = now;   // reset so we don't immediately re-flip next frame
+      log(`🔄 Turned around — facing ${mario.facing > 0 ? 'right' : 'left'}`, 'game');
+    }
+  } else {
+    mario.idleStart = 0;
+  }
 
   moveEntityX(mario, mario.vx * dt);
+  // Don't let Mario walk off the left edge of the world.
+  if (mario.x < 0) { mario.x = 0; mario.vx = 0; }
 
   // Gravity
   mario.vy = Math.min(mario.vy + GRAVITY * dt, MAX_FALL);
@@ -815,18 +1297,33 @@ function update(dt) {
   // Fell in pit
   if (mario.y > VIEW_H + 40) killMario();
 
-  // Flag reached
-  if (mario.x + mario.w > FLAG_TILE_X * TILE) {
+  // Flag reached (level 1). Level 2 has FLAG_TILE_X = -1, so this is skipped.
+  if (FLAG_TILE_X > 0 && mario.x + mario.w > FLAG_TILE_X * TILE) {
     gameState = 'win';
     score += Math.floor(timeLeft) * 50;
     updateHUD();
     log(`🏁 LEVEL CLEAR! Final score ${score}`, 'win');
+    stopMusic();
+    sfxWin();
+    return;
+  }
+
+  // Princess Peach rescued (level 2). Cage breaks when Bowser dies.
+  if (peach && peach.freed && aabbOverlap(mario, peach)) {
+    gameState = 'win';
+    score += Math.floor(timeLeft) * 50;
+    updateHUD();
+    log(`👑 PRINCESS PEACH SAVED! Final score ${score}`, 'win');
+    stopMusic();
+    sfxWin();
     return;
   }
 
   updateEnemies(dt);
   updateItems(dt);
   updateFireballs(dt);
+  updateBoss(dt);
+  updateHostileFireballs(dt);
   resolveMarioEnemy();
 
   // Particles
@@ -850,20 +1347,21 @@ function resizeCanvas() {
 resizeCanvas();
 
 function drawGround(ox) {
-  // Brown ground strip
+  const castle = levelTheme === 'castle';
+  // Theme-specific palette: warm overworld dirt vs. cold castle stone.
+  const top   = castle ? '#5a5a6a' : '#E39D25';
+  const bot   = castle ? '#3a3a4a' : '#B06010';
+  const stripe = castle ? '#202028' : '#7C3D00';
   for (let x = 0; x < LEVEL_COLS; x++) {
     if (!isSolidAt(x, GROUND_ROW)) continue;
     const px = x * TILE - ox;
     if (px < -TILE || px > VIEW_W) continue;
     const py = GROUND_ROW * TILE;
-    // Main ground block
-    ctx.fillStyle = '#E39D25';
+    ctx.fillStyle = top;
     ctx.fillRect(px, py, TILE, TILE);
-    // Darker bottom half
-    ctx.fillStyle = '#B06010';
+    ctx.fillStyle = bot;
     ctx.fillRect(px, py + 8, TILE, 8);
-    // Brick pattern
-    ctx.fillStyle = '#7C3D00';
+    ctx.fillStyle = stripe;
     ctx.fillRect(px + 2, py + 2, TILE - 4, 1);
     ctx.fillRect(px + 2, py + 8, TILE - 4, 1);
     ctx.fillRect(px + 8, py + 2, 1, 6);
@@ -940,6 +1438,20 @@ function drawMario(ox) {
   const shoe = '#7C3D00';
   const hair = '#7C3D00';
 
+  // Mirror the sprite horizontally when facing left. Flip is around Mario's
+  // own center axis (px + mario.w/2), which is equivalent to translating by
+  // 2*center then scaling x by -1.
+  ctx.save();
+  if (mario.facing < 0) {
+    ctx.translate(px * 2 + mario.w, 0);
+    ctx.scale(-1, 1);
+  }
+
+  // Idle-flip indicator: small countdown bar above Mario when he's standing
+  // still on the ground. Drawn outside the flip transform so the bar always
+  // reads left-to-right regardless of facing.
+  // (Done after the restore below.)
+
   if (small) {
     // 12×14 small Mario
     // Hat
@@ -1009,6 +1521,24 @@ function drawMario(ox) {
       ctx.fillRect(px + 1, py + 25, 5, 3);
       ctx.fillRect(px + 6, py + 25, 5, 3);
     }
+  }
+  ctx.restore();
+
+  // Idle countdown bar above Mario's head. Fills as the 3 sec timer elapses;
+  // gives the player a visible cue that a flip is about to happen.
+  if (mario.idleStart > 0 && gameState === 'playing') {
+    const elapsed = now - mario.idleStart;
+    const frac = Math.min(1, elapsed / IDLE_FLIP_MS);
+    const barW = 14;
+    const barH = 2;
+    const bx = px - 1;
+    const by = py - 5;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+    ctx.fillStyle = '#444';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = frac >= 1 ? '#3DB7FF' : '#FAC000';
+    ctx.fillRect(bx, by, Math.round(barW * frac), barH);
   }
 }
 
@@ -1135,6 +1665,246 @@ function drawFlag(ox) {
   ctx.fillRect(px - 6, groundY - 10 * TILE + 4, 14, 10);
 }
 
+function drawBowser(ox) {
+  if (!boss || boss.dead) return;
+  const px = Math.round(boss.x - ox);
+  const py = Math.round(boss.y);
+  const now = performance.now();
+  // Hurt-flash: blink during the brief invuln window after a hit.
+  if (now < boss.hurtUntil && Math.floor(now / 80) % 2 === 0) return;
+
+  const shellGreen = '#1B7A1B';
+  const shellLight = '#3CB44A';
+  const skin       = '#E8C040';
+  const skinDark   = '#B07A10';
+  const horn       = '#F8F0C0';
+  const red        = '#C81818';
+
+  // Shell back (rounded square w/ spikes)
+  ctx.fillStyle = shellGreen;
+  ctx.fillRect(px + 2, py + 8, 20, 18);
+  ctx.fillStyle = shellLight;
+  ctx.fillRect(px + 4, py + 10, 16, 4);
+  // Spikes on the shell
+  ctx.fillStyle = horn;
+  ctx.fillRect(px + 4,  py + 6, 2, 3);
+  ctx.fillRect(px + 11, py + 4, 2, 4);
+  ctx.fillRect(px + 18, py + 6, 2, 3);
+
+  // Body / belly
+  ctx.fillStyle = skin;
+  ctx.fillRect(px + 6, py + 12, 12, 12);
+  ctx.fillStyle = skinDark;
+  ctx.fillRect(px + 6, py + 22, 12, 2);
+
+  // Head (orange-yellow)
+  ctx.fillStyle = skin;
+  ctx.fillRect(px + 6, py,     12, 8);
+  ctx.fillRect(px + 4, py + 2, 16, 5);
+  // Hair tuft (red)
+  ctx.fillStyle = red;
+  ctx.fillRect(px + 8, py - 2, 8, 2);
+  // Horns
+  ctx.fillStyle = horn;
+  ctx.fillRect(px + 3, py + 1, 2, 3);
+  ctx.fillRect(px + 19, py + 1, 2, 3);
+  // Eyes
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(px + 8,  py + 3, 2, 2);
+  ctx.fillRect(px + 14, py + 3, 2, 2);
+  ctx.fillStyle = '#000';
+  const eyeShift = boss.facing < 0 ? 0 : 1;
+  ctx.fillRect(px + 8  + eyeShift, py + 4, 1, 1);
+  ctx.fillRect(px + 14 + eyeShift, py + 4, 1, 1);
+  // Mouth — open on every other frame for menace
+  const mouthOpen = Math.floor(boss.animFrame / 12) % 2 === 0;
+  ctx.fillStyle = '#000';
+  if (mouthOpen) {
+    ctx.fillRect(px + 9, py + 6, 6, 2);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(px + 10, py + 6, 1, 1);  // tooth
+    ctx.fillRect(px + 13, py + 6, 1, 1);
+  } else {
+    ctx.fillRect(px + 10, py + 6, 4, 1);
+  }
+
+  // Arms (animated swing)
+  const armStep = Math.floor(boss.animFrame / 6) % 2;
+  ctx.fillStyle = skin;
+  if (armStep === 0) {
+    ctx.fillRect(px,      py + 12, 4, 6);
+    ctx.fillRect(px + 20, py + 12, 4, 6);
+  } else {
+    ctx.fillRect(px,      py + 14, 4, 6);
+    ctx.fillRect(px + 20, py + 14, 4, 6);
+  }
+  // Claws
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(px,      py + (armStep === 0 ? 17 : 19), 2, 1);
+  ctx.fillRect(px + 22, py + (armStep === 0 ? 17 : 19), 2, 1);
+
+  // Feet
+  ctx.fillStyle = skinDark;
+  ctx.fillRect(px + 3,  py + 24, 6, 4);
+  ctx.fillRect(px + 15, py + 24, 6, 4);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(px + 3, py + 27, 2, 1);
+  ctx.fillRect(px + 7, py + 27, 2, 1);
+  ctx.fillRect(px + 15, py + 27, 2, 1);
+  ctx.fillRect(px + 19, py + 27, 2, 1);
+
+  // HP bar floating above head
+  const hpBarW = 28;
+  const hpFillW = Math.round(hpBarW * (boss.hp / boss.maxHp));
+  ctx.fillStyle = '#000';
+  ctx.fillRect(px - 2, py - 8, hpBarW + 2, 4);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(px - 1, py - 7, hpBarW, 2);
+  ctx.fillStyle = boss.hp > 1 ? '#E52521' : '#FAC000';
+  ctx.fillRect(px - 1, py - 7, hpFillW, 2);
+}
+
+function drawPeach(ox) {
+  if (!peach) return;
+  const px = Math.round(peach.x - ox);
+  const py = Math.round(peach.y);
+  const now = performance.now();
+  // Bobbing animation once freed.
+  const bob = peach.freed ? Math.round(Math.sin(now / 200) * 1.5) : 0;
+  // Hair (blonde) + crown
+  ctx.fillStyle = '#FFD93D';
+  ctx.fillRect(px,     py + 2 + bob, 12, 6);
+  ctx.fillRect(px - 1, py + 6 + bob, 14, 4);
+  // Crown
+  ctx.fillStyle = '#FAC000';
+  ctx.fillRect(px + 3, py - 2 + bob, 6, 2);
+  ctx.fillRect(px + 4, py - 4 + bob, 1, 2);
+  ctx.fillRect(px + 6, py - 4 + bob, 1, 2);
+  ctx.fillRect(px + 8, py - 4 + bob, 1, 2);
+  // Face
+  ctx.fillStyle = '#FABCB2';
+  ctx.fillRect(px + 3, py + 5 + bob, 6, 4);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(px + 4, py + 6 + bob, 1, 1);
+  ctx.fillRect(px + 7, py + 6 + bob, 1, 1);
+  // Pink dress
+  ctx.fillStyle = '#FF9FCB';
+  ctx.fillRect(px + 1, py + 10 + bob, 10, 10);
+  ctx.fillRect(px,     py + 16 + bob, 12, 8);
+  // Dress trim
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(px,     py + 22 + bob, 12, 2);
+  // Blue gem on chest
+  ctx.fillStyle = '#3DB7FF';
+  ctx.fillRect(px + 5, py + 12 + bob, 2, 2);
+  // Arms
+  ctx.fillStyle = '#FABCB2';
+  ctx.fillRect(px - 1, py + 12 + bob, 2, 4);
+  ctx.fillRect(px + 11, py + 12 + bob, 2, 4);
+
+  // Heart particle floating up after rescue
+  if (peach.freed) {
+    const t = (now % 1500) / 1500;
+    const hx = px + 4;
+    const hy = py - 8 - Math.round(t * 12);
+    ctx.fillStyle = `rgba(255,80,140,${1 - t})`;
+    ctx.fillRect(hx,     hy + 1, 6, 3);
+    ctx.fillRect(hx + 1, hy,     2, 1);
+    ctx.fillRect(hx + 4, hy,     2, 1);
+    ctx.fillRect(hx + 1, hy + 4, 4, 1);
+    ctx.fillRect(hx + 2, hy + 5, 2, 1);
+  }
+}
+
+function drawCage(ox) {
+  if (!cage) return;
+  const left = cage.leftX - ox;
+  const right = cage.rightX - ox;
+  const top = cage.topY;
+  const bottom = GROUND_ROW * TILE;
+  if (right < 0 || left > VIEW_W) return;
+
+  if (cage.broken) {
+    // Just the busted base — bars are gone.
+    ctx.fillStyle = '#666';
+    ctx.fillRect(left,  bottom - 2, right - left, 2);
+    ctx.fillStyle = '#888';
+    ctx.fillRect(left + 2, bottom - 1, right - left - 4, 1);
+    return;
+  }
+  // Top crossbar
+  ctx.fillStyle = '#888';
+  ctx.fillRect(left, top, right - left, 3);
+  ctx.fillStyle = '#bbb';
+  ctx.fillRect(left, top, right - left, 1);
+  // Vertical bars
+  ctx.fillStyle = '#888';
+  for (let bx = left; bx <= right; bx += 6) {
+    ctx.fillRect(bx, top + 3, 2, bottom - top - 3);
+  }
+  // Side posts (thicker)
+  ctx.fillRect(left,      top, 3, bottom - top);
+  ctx.fillRect(right - 3, top, 3, bottom - top);
+  // Base
+  ctx.fillStyle = '#666';
+  ctx.fillRect(left, bottom - 2, right - left, 2);
+}
+
+function drawHostileFireball(f, ox) {
+  const px = Math.round(f.x - ox);
+  const py = Math.round(f.y);
+  const phase = Math.floor(performance.now() / 60) % 2;
+  // Inverted palette vs. Mario's fireball: blue/purple core to read as "evil".
+  ctx.fillStyle = phase === 0 ? '#7030F0' : '#A050FF';
+  ctx.fillRect(px, py, f.w, f.h);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(px + 2, py + 2, f.w - 4, f.h - 4);
+}
+
+function drawLava(ox) {
+  // Animated lava strip in pit columns. Visual only — falling in still kills
+  // Mario via the existing y > VIEW_H + 40 check.
+  const t = performance.now();
+  for (const p of pits) {
+    const px = p.x * TILE - ox;
+    if (px + p.w * TILE < 0 || px > VIEW_W) continue;
+    const py = GROUND_ROW * TILE + 4;
+    const w = p.w * TILE;
+    ctx.fillStyle = '#A01000';
+    ctx.fillRect(px, py, w, TILE - 4);
+    // Wavy surface
+    ctx.fillStyle = '#FF5000';
+    for (let x = 0; x < w; x += 4) {
+      const wave = Math.sin((x + t / 80) / 4) * 1.5;
+      ctx.fillRect(px + x, py + Math.round(wave), 4, 2);
+    }
+    ctx.fillStyle = '#FFD040';
+    for (let x = 2; x < w; x += 8) {
+      const wave = Math.cos((x + t / 60) / 3) * 1.2;
+      ctx.fillRect(px + x, py + Math.round(wave), 2, 1);
+    }
+  }
+}
+
+function drawCastleColumns(ox) {
+  // Decorative background pillars to sell the "castle" vibe.
+  const cols = [60, 200, 360, 520, 720, 880];
+  for (const cx of cols) {
+    const px = cx - ox * 0.6;
+    if (px < -40 || px > VIEW_W + 20) continue;
+    const gy = GROUND_ROW * TILE;
+    // Column shaft
+    ctx.fillStyle = '#3a3a48';
+    ctx.fillRect(px, gy - 80, 16, 80);
+    ctx.fillStyle = '#5a5a68';
+    ctx.fillRect(px + 2, gy - 80, 4, 80);
+    // Capital + base
+    ctx.fillStyle = '#5a5a68';
+    ctx.fillRect(px - 2, gy - 84, 20, 4);
+    ctx.fillRect(px - 2, gy - 4,  20, 4);
+  }
+}
+
 function drawClouds(ox) {
   // A few decorative clouds in parallax
   const clouds = [
@@ -1201,32 +1971,54 @@ function drawOverlayText(lines, colors = []) {
 
 function draw() {
   const ox = getCameraX();
-  // Sky
-  ctx.fillStyle = '#5C94FC';
+  const castle = levelTheme === 'castle';
+
+  // Sky / backdrop
+  ctx.fillStyle = castle ? '#0a0a14' : '#5C94FC';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  drawClouds(ox);
-  drawHills(ox);
+  if (castle) {
+    drawCastleColumns(ox);
+  } else {
+    drawClouds(ox);
+    drawHills(ox);
+  }
   drawGround(ox);
+  if (castle) drawLava(ox);
   drawPipes(ox);
   drawQBlocks(ox);
-  drawFlag(ox);
+  if (FLAG_TILE_X > 0) drawFlag(ox);
+  drawCage(ox);
 
   for (const it of items)  if (it.alive)  drawItem(it, ox);
   for (const en of enemies) if (!en.dead && en.spawned) {
     if (en.kind === 'goomba') drawGoomba(en, ox); else drawKoopa(en, ox);
   }
   for (const f of fireballs) if (f.alive) drawFireball(f, ox);
+  for (const f of hostileFireballs) if (f.alive) drawHostileFireball(f, ox);
 
+  drawBowser(ox);
+  drawPeach(ox);
   drawMario(ox);
   drawParticles(ox);
 
   // Overlays
   if (gameState === 'ready') {
-    drawOverlayText(['WALK TO START', 'OR PRESS SPACE'], ['#FFFFFF', '#FAC000']);
+    if (currentLevel === 2) {
+      drawOverlayText(['BOWSER\'S CASTLE', 'RESCUE PEACH!', 'WALK / SPACE'],
+                      ['#E52521', '#FFD93D', '#FFFFFF']);
+    } else {
+      drawOverlayText(['WALK TO START', 'OR PRESS SPACE'], ['#FFFFFF', '#FAC000']);
+    }
   } else if (gameState === 'gameover') {
     drawOverlayText(['GAME OVER', `SCORE ${score}`, 'JUMP TO RETRY'], ['#E52521', '#FFFFFF', '#FAC000']);
   } else if (gameState === 'win') {
-    drawOverlayText(['LEVEL CLEAR!', `SCORE ${score}`, 'JUMP TO REPLAY'], ['#FAC000', '#FFFFFF', '#FFFFFF']);
+    if (currentLevel === 1) {
+      drawOverlayText(['LEVEL CLEAR!', `SCORE ${score}`, 'JUMP TO CONTINUE'],
+                      ['#FAC000', '#FFFFFF', '#FFFFFF']);
+    } else {
+      drawOverlayText(['PEACH SAVED!', `SCORE ${score}`, 'JUMP TO REPLAY'],
+                      ['#FF9FCB', '#FFFFFF', '#FFFFFF']);
+    }
   }
 }
 
@@ -1245,8 +2037,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-buildGrid();
-resetLevel();
+resetLevel();   // populates level data, builds grid, spawns enemies
 requestAnimationFrame(loop);
 
 log('Keyboard: → walk, ↑/Space jump, ↓ fire. Have fun!', 'game');
