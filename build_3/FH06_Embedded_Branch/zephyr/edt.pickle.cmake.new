@@ -305,7 +305,7 @@ set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|zephyr,deferred-init" "False")
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|wakeup-source" "False")
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|zephyr,pm-device-runtime-auto" "False")
-set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|spi-max-frequency" "1000000")
+set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|spi-max-frequency" "8000000")
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|duplex" "0")
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|frame-format" "0")
 set_target_properties(${DEVICETREE_TARGET} PROPERTIES "DT_PROP|/soc/spi@40004000/bma400@0|spi-cpol" "False")

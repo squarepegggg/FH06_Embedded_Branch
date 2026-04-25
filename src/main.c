@@ -572,7 +572,7 @@ int main(void) {
  const struct device *cons1 = DEVICE_DT_GET(DT_NODELABEL(gpio0));
  pm_device_action_run(cons1, PM_DEVICE_ACTION_SUSPEND);
 
- k_timer_start(&timer0, K_MSEC(1000), K_MSEC(1000));
+ k_timer_start(&timer0, K_MSEC(750), K_MSEC(750));
 
  while (1) {
  k_sleep(K_FOREVER);

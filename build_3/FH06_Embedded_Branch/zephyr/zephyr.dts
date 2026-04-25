@@ -238,9 +238,9 @@
 
 			/* node '/soc/spi@40004000/bma400@0' defined in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:56 */
 			bma400: bma400@0 {
-				compatible = "bosch,bma4xx";     /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:57 */
-				reg = < 0x0 >;                   /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:58 */
-				spi-max-frequency = < 0xf4240 >; /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:59 */
+				compatible = "bosch,bma4xx";      /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:57 */
+				reg = < 0x0 >;                    /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:58 */
+				spi-max-frequency = < 0x7a1200 >; /* in ../../../../Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/boards/nrf52dk_nrf52832.overlay:59 */
 			};
 		};
 
