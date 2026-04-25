@@ -38,13 +38,13 @@ void run_nn_infer(struct bma400_fifo_sensor_data *accel_data, uint16_t count)
 				   if (strcmp(label, "class 1") == 0)
                        biggest_idx = 0;  /* idle     */
                    else if (strcmp(label, "class 2") == 0)
-                       biggest_idx = 1;  /* clap   */
+                       biggest_idx = 1;  /* walk   */
                    else if (strcmp(label, "class 3") == 0)
                        biggest_idx = 2;  /* sixseven    */
                    else if (strcmp(label, "class 4") == 0)
-                       biggest_idx = 3;  /* spinning  */
+                       biggest_idx = 3;  /* wave  */
                    else if (strcmp(label, "class 5") == 0)
-                       biggest_idx = 4;  /* walking  */
+                       biggest_idx = 4;  /* clap  */
 
 
 	

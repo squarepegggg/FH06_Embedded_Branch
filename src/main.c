@@ -391,7 +391,7 @@ void thread_run_policy(void) {
  // val_mv = val_mv*4; // scale by voltage divider ratio
  cached_voltage_mv = (uint16_t)val_mv;
  // LOG_INF("1. Read ADC: %d mv, scaled: %d mv", val_mv, val_mv * 15 / 10);
- if (val_mv > 1733 && last_tx_done == true) {
+ if (val_mv > 1710 && last_tx_done == true) {
  const struct device* cons = DEVICE_DT_GET(DT_NODELABEL(spi1));
  pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
 
