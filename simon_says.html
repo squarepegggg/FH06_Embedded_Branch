@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Simon Says – BLE Gesture Game</title>
+<title>Simon Says – UART Gesture Game</title>
 <style>
   :root {
     --bg: #0f1117;
@@ -227,16 +227,16 @@
 <h1>🗣️ Simon Says</h1>
 <p class="subtitle">
   Do what Simon says — but <b>only</b> when Simon says to.<br>
-  Gestures: 🚶 walk · ⁶🤷⁷ 6-7 · 👋 wave · 👏 clap<br>
+  Gestures: 🦘 jump · ⁶🤷⁷ 6-7 · 🌀 spin · 🚶 walk · 👋 wave<br>
   After Simon speaks you have <b>3.6 seconds</b>; every on-device prediction is counted, and your <b>most common</b> gesture wins the round (ties → earlier gesture in list).
 </p>
 
 <!-- Connection -->
 <div class="conn-bar">
   <div class="status-dot" id="statusDot"></div>
-  <span class="status-text" id="statusText">Disconnected</span>
-  <button id="btnConnect" onclick="connectBLE()">Connect</button>
-  <button id="btnDisconnect" class="secondary" onclick="disconnectBLE()" disabled>Disconnect</button>
+  <span class="status-text" id="statusText">UART disconnected</span>
+  <button id="btnConnect" onclick="connectUART()">Connect UART</button>
+  <button id="btnDisconnect" class="secondary" onclick="disconnectUART()" disabled>Disconnect</button>
 </div>
 
 <!-- Voice picker -->
@@ -282,17 +282,41 @@
 <div class="log" id="log"></div>
 
 <script>
-// ── BLE (same as dashboard / dino) ─────────────────────────
-const SERVICE_UUID = '12345678-1234-5678-1234-1234567890ab';
-const CHAR_UUID    = '12345679-1234-5678-1234-1234567890ab';
-const LATENCY_SENTINEL = 0xFFFFFFFF;
+// ── UART packet input from nRF BLE scanner ─────────────────
+const UART_BAUD_RATE = 115200;
+const COMPANY_ID_CODE = 0x0059;
+const SCANNER_PAYLOAD_BYTES = 9;
+const MANUFACTURER_PAYLOAD_BYTES = 11;
+const AD_STRUCTURE_BYTES = 13;
 
-// model.py CLASSES order — matches labels sent by firmware
-const ACTIVITIES = ['idle', 'walk', 'sixseven', 'wave', 'clap'];
-const GESTURES   = ['walk', 'sixseven', 'wave', 'clap']; // playable (idle is guard state)
+// Exact class names produced by src/run_nn.c and carried in adv_mfg_data.pred.
+const FIRMWARE_CLASSES = [
+  { label: 'idle',     spoken: 'stay idle', gameName: 'idle', icon: '🧍' },
+  { label: 'jump',     spoken: 'jump',      gameName: 'jump', icon: '🦘' },
+  { label: 'sixseven', spoken: 'six seven', gameName: '6-7',  icon: '⁶🤷⁷' },
+  { label: 'spinning', spoken: 'spin',      gameName: 'spin', icon: '🌀' },
+  { label: 'walking',  spoken: 'walk',      gameName: 'walk', icon: '🚶' },
+  { label: 'waving',   spoken: 'wave',      gameName: 'wave', icon: '👋' },
+];
+const ACTIVITIES = FIRMWARE_CLASSES.map(c => c.label);
+const GESTURES = ACTIVITIES.filter(label => label !== 'idle'); // playable classes
 
-let device = null;
-let characteristic = null;
+let serialPort = null;
+let serialReader = null;
+let serialLineBuffer = '';
+let lastPacketLogAt = 0;
+
+function classInfoFor(label) {
+  return FIRMWARE_CLASSES.find(c => c.label === label) || FIRMWARE_CLASSES[0];
+}
+
+function sayGesture(label) {
+  return classInfoFor(label).spoken;
+}
+
+function showGesture(label) {
+  return classInfoFor(label).gameName;
+}
 
 // ── Logging ────────────────────────────────────────────────
 function log(msg, cls = '') {
@@ -302,53 +326,159 @@ function log(msg, cls = '') {
   el.scrollTop = el.scrollHeight;
 }
 
-// ── BLE notification handler ───────────────────────────────
-function onNotification(event) {
-  const value = event.target.value;
-  if (value.byteLength < 17) return;
+// Scanner UART packet structure from firmware:
+//   Advertiser struct adv_mfg_data (11 bytes, packed, little-endian):
+//     uint16_t company_code = 0x0059
+//     uint8_t  pred         = 0 idle, 1 jump, 2 sixseven, 3 spinning, 4 walking, 5 waving
+//     int16_t  x
+//     int16_t  y
+//     int16_t  z
+//     uint16_t voltage_mv
+//   Scanner src/main.c logs &adv_data->data[4], so normal UART lines carry 9 bytes:
+//     pred, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi, voltage_lo, voltage_hi
+function parseScannerPacket(bytes) {
+  let offset = -1;
+  let packetType = '';
 
-  const label       = value.getUint8(0);
-  const inferenceUs = value.getUint32(7, true);
-  const isPrediction = label < ACTIVITIES.length && inferenceUs !== LATENCY_SENTINEL;
-  if (!isPrediction) return;
+  if (bytes.length >= AD_STRUCTURE_BYTES && bytes[1] === 0xff &&
+      bytes[2] === (COMPANY_ID_CODE & 0xff) && bytes[3] === (COMPANY_ID_CODE >> 8)) {
+    offset = 4;
+    packetType = 'BLE AD structure';
+  } else if (bytes.length >= MANUFACTURER_PAYLOAD_BYTES &&
+      bytes[0] === (COMPANY_ID_CODE & 0xff) && bytes[1] === (COMPANY_ID_CODE >> 8)) {
+    offset = 2;
+    packetType = 'manufacturer payload';
+  } else if (bytes.length >= SCANNER_PAYLOAD_BYTES) {
+    offset = 0;
+    packetType = 'scanner UART payload';
+  }
 
-  handlePrediction(label);
+  if (offset < 0 || bytes.length - offset < SCANNER_PAYLOAD_BYTES) return null;
+
+  const payload = bytes.slice(offset, offset + SCANNER_PAYLOAD_BYTES);
+  const data = new Uint8Array(payload);
+  const view = new DataView(data.buffer);
+  const labelIdx = view.getUint8(0);
+  if (labelIdx >= ACTIVITIES.length) return null;
+
+  return {
+    packetType,
+    labelIdx,
+    label: ACTIVITIES[labelIdx],
+    x: view.getInt16(1, true),
+    y: view.getInt16(3, true),
+    z: view.getInt16(5, true),
+    voltageMv: view.getUint16(7, true),
+    raw: payload,
+  };
 }
 
-async function connectBLE() {
-  try {
-    log('Scanning for AccelDevice…', 'conn');
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ name: 'AccelDevice' }],
-      optionalServices: [SERVICE_UUID],
-    });
-    device.addEventListener('gattserverdisconnected', () => {
-      setConnected(false);
-      log('Device disconnected', 'err');
-    });
+function bytesFromSerialLine(line) {
+  const appIndex = line.indexOf('app:');
+  const message = appIndex >= 0 ? line.slice(appIndex + 4) : line;
+  const hexRegion = message.split('|')[0].replace(/^\s*(?:0x)?[0-9a-fA-F]{8}:\s*/, '');
+  const matches = hexRegion.match(/\b[0-9a-fA-F]{2}\b/g);
+  return matches ? matches.map(h => Number.parseInt(h, 16)) : [];
+}
 
-    const server = await device.gatt.connect();
-    const service = await server.getPrimaryService(SERVICE_UUID);
-    characteristic = await service.getCharacteristic(CHAR_UUID);
-    await characteristic.startNotifications();
-    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+function handleSerialLine(line) {
+  const bytes = bytesFromSerialLine(line);
+  if (!bytes.length) return;
 
-    setConnected(true);
-    log('Connected — press Start to play!', 'conn');
-  } catch (err) {
-    log(`Error: ${err.message}`, 'err');
+  const packet = parseScannerPacket(bytes);
+  if (!packet) return;
+
+  handlePrediction(packet.labelIdx);
+
+  const now = performance.now();
+  if (now - lastPacketLogAt > 1000 || state === STATE.REACTING) {
+    const classInfo = FIRMWARE_CLASSES[packet.labelIdx];
+    log(`UART ${packet.packetType}: pred=${packet.labelIdx} (${classInfo.label}), x=${packet.x}, y=${packet.y}, z=${packet.z}, voltage=${packet.voltageMv}mV`, 'conn');
+    lastPacketLogAt = now;
   }
 }
 
-function disconnectBLE() {
-  if (device && device.gatt.connected) device.gatt.disconnect();
+function consumeSerialText(text) {
+  serialLineBuffer += text;
+  const lines = serialLineBuffer.split(/\r?\n/);
+  serialLineBuffer = lines.pop() || '';
+  lines.forEach(handleSerialLine);
+}
+
+async function readSerialLoop() {
+  const decoder = new TextDecoder();
+  try {
+    while (serialPort && serialPort.readable) {
+      serialReader = serialPort.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await serialReader.read();
+          if (done) break;
+          if (value) consumeSerialText(decoder.decode(value, { stream: true }));
+        }
+      } finally {
+        serialReader.releaseLock();
+        serialReader = null;
+      }
+    }
+  } catch (err) {
+    if (serialPort) log(`UART read error: ${err.message}`, 'err');
+  } finally {
+    if (serialLineBuffer) {
+      handleSerialLine(serialLineBuffer);
+      serialLineBuffer = '';
+    }
+    if (serialPort) {
+      await closeSerialPort();
+      log('UART disconnected', 'err');
+    }
+    setConnected(false);
+  }
+}
+
+async function connectUART() {
+  if (!('serial' in navigator)) {
+    log('Web Serial is unavailable. Use Chrome/Edge on localhost or HTTPS.', 'err');
+    return;
+  }
+
+  try {
+    log(`Select the nRF UART/USB serial port (${UART_BAUD_RATE} baud).`, 'conn');
+    serialPort = await navigator.serial.requestPort();
+    await serialPort.open({ baudRate: UART_BAUD_RATE });
+    setConnected(true);
+    log('UART connected — press Start to play!', 'conn');
+    readSerialLoop();
+  } catch (err) {
+    log(`UART error: ${err.message}`, 'err');
+    await closeSerialPort();
+    setConnected(false);
+  }
+}
+
+async function closeSerialPort() {
+  const port = serialPort;
+  serialPort = null;
+  if (serialReader) {
+    try { await serialReader.cancel(); } catch (_) {}
+  }
+  for (let i = 0; port && port.readable && port.readable.locked && i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (port) {
+    try { await port.close(); } catch (_) {}
+  }
+}
+
+async function disconnectUART() {
+  await closeSerialPort();
   setConnected(false);
 }
 
 function setConnected(connected) {
   document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
   const st = document.getElementById('statusText');
-  st.textContent = connected ? 'Connected to AccelDevice' : 'Disconnected';
+  st.textContent = connected ? `UART connected @ ${UART_BAUD_RATE} baud` : 'UART disconnected';
   st.className = 'status-text' + (connected ? ' connected' : '');
   document.getElementById('btnConnect').disabled = connected;
   document.getElementById('btnDisconnect').disabled = !connected;
@@ -436,10 +566,10 @@ document.getElementById('best').textContent = best;
 //   streak <  6: +simon_dont (negative)
 //   streak >= 6: +retract (fakeout)
 function buildRound(streak) {
-  // First three rounds (easy warmup): no 'walk' gesture, no 'trap' or 'simon_dont' types,
-  // and each of the three rounds uses a distinct gesture from {sixseven, wave, clap}.
+  // First three rounds (easy warmup): no 'walking' gesture, no 'trap' or 'simon_dont'
+  // types, and each round uses a distinct class from {jump, sixseven, waving}.
   const easyMode = streak < 3;
-  let gesturePool = easyMode ? GESTURES.filter(n => n !== 'walk') : GESTURES;
+  let gesturePool = easyMode ? ['jump', 'sixseven', 'waving'] : GESTURES;
   if (easyMode) {
     const fresh = gesturePool.filter(n => !usedEasyGestures.includes(n));
     if (fresh.length) gesturePool = fresh;
@@ -454,33 +584,26 @@ function buildRound(streak) {
   else                 type = r < 0.40 ? 'simon_do' : r < 0.65 ? 'trap' : r < 0.85 ? 'simon_dont' : 'retract';
   if (easyMode && (type === 'simon_dont' || type === 'trap')) type = 'simon_do';
 
-  const say = (n) => {
-    if (n === 'sixseven') return 'six seven';
-    if (n === 'walk')     return 'walk';
-    return n;  // wave, clap — spoken as-is
-  };
-  const show = (n) => (n === 'sixseven' ? '6-7' : n);
-
   switch (type) {
     case 'simon_do':
       return {
         type,
-        spoken: `Simon says ${say(g)}`,
-        captionHTML: `"Simon says <span class="hl">${show(g)}</span>"`,
+        spoken: `Simon says ${sayGesture(g)}`,
+        captionHTML: `"Simon says <span class="hl">${showGesture(g)}</span>"`,
         correct: g,
       };
     case 'trap':
       return {
         type,
-        spoken: say(g),
-        captionHTML: `"<span class="hl">${show(g)}</span>" <span class="neg">(no &quot;Simon says&quot;!)</span>`,
+        spoken: sayGesture(g),
+        captionHTML: `"<span class="hl">${showGesture(g)}</span>" <span class="neg">(no &quot;Simon says&quot;!)</span>`,
         correct: 'idle',
       };
     case 'simon_dont':
       return {
         type,
-        spoken: `Simon says don't ${say(g)}`,
-        captionHTML: `"Simon says <span class="neg">DON'T</span> <span class="hl">${show(g)}</span>"`,
+        spoken: `Simon says don't ${sayGesture(g)}`,
+        captionHTML: `"Simon says <span class="neg">DON'T</span> <span class="hl">${showGesture(g)}</span>"`,
         correct: 'idle',
       };
     case 'retract': {
@@ -488,8 +611,8 @@ function buildRound(streak) {
       const target = others[Math.floor(Math.random() * others.length)];
       return {
         type,
-        spoken: `Simon says ${say(g)}... nope, ${say(target)}`,
-        captionHTML: `"Simon says ${show(g)}... <span class="neg">nope,</span> <span class="hl">${show(target)}</span>"`,
+        spoken: `Simon says ${sayGesture(g)}... nope, ${sayGesture(target)}`,
+        captionHTML: `"Simon says ${showGesture(g)}... <span class="neg">nope,</span> <span class="hl">${showGesture(target)}</span>"`,
         correct: target,
       };
     }
@@ -662,7 +785,7 @@ async function nextRound() {
     if (round.correct === 'idle') {
       setCaptionHTML(`Held still! <span class="hl">+${pts}</span>`);
     } else {
-      setCaptionHTML(`Nice — ${round.correct === 'sixseven' ? '6-7' : round.correct}! <span class="hl">+${pts}</span>`);
+      setCaptionHTML(`Nice — ${showGesture(round.correct)}! <span class="hl">+${pts}</span>`);
     }
     setHint(`Streak ${streak}  ·  next round incoming…`);
     log(`✔ ${round.type}  +${pts}  (streak ${streak})`, 'win');
@@ -673,7 +796,7 @@ async function nextRound() {
     updateScoreboard();
     setStageClass('lose');
     setAvatar('💥', true);
-    const expected = round.correct === 'idle' ? 'stay idle' : (round.correct === 'sixseven' ? '6-7' : round.correct);
+    const expected = round.correct === 'idle' ? 'stay idle' : showGesture(round.correct);
     let msg;
     if (result.reason === 'timeout') {
       msg = `No predictions — Simon needed <b>${expected}</b>.`;
@@ -725,8 +848,8 @@ function renderLeaderboard() {
 }
 renderLeaderboard();
 
-// ── Keyboard fallback for testing without BLE ─────────────
-// 1=walk  2=sixseven  3=wave  4=clap  (no key = idle)
+// ── Keyboard fallback for testing without UART ─────────────
+// 1=jump  2=sixseven  3=spinning  4=walking  5=waving  (no key = idle)
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.code === 'Space' || e.code === 'Enter') {
@@ -734,11 +857,11 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (state !== STATE.REACTING) return;
-  const keyMap = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4 };
+  const keyMap = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5 };
   if (e.code in keyMap) { e.preventDefault(); handlePrediction(keyMap[e.code]); }
 });
 
-log('Keyboard test: 1=walk, 2=6-7, 3=wave, 4=clap (each key adds a prediction). Space=start/restart.', 'game');
+log('Keyboard test: 1=jump, 2=6-7, 3=spin, 4=walk, 5=wave (each key adds a prediction). Space=start/restart.', 'game');
 </script>
 
 </body>
