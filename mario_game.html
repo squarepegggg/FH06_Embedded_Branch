@@ -168,7 +168,7 @@ let device = null;
 let characteristic = null;
 
 // ── 7-sample majority-vote smoothing ───────────────────────
-const MAJORITY_WINDOW = 7;
+const MAJORITY_WINDOW = 3;
 const labelWindow = [];  // sliding window of the last N raw labels
 
 function majorityLabel() {
