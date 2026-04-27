@@ -74,17 +74,17 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/adc/cmake_install.cmake")
-endif()
-
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
   include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/bluetooth/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
   include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/clock_control/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/console/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
@@ -99,12 +99,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/pinctrl/cmake_install.cmake")
-endif()
-
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
-  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/spi/cmake_install.cmake")
+  include("/Users/matthew/Desktop/seniorDesign/FH06_Embedded_Branch/build_2/FH06_Embedded_Branch/zephyr/drivers/serial/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)

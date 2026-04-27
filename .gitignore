@@ -30,6 +30,8 @@ node_modules/
 .AppleDouble
 .LSOverride
 ._*
+.cache/
+boards/
 
 # ──────────────────────────────────────────────
 #  Python
