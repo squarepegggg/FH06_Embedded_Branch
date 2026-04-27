@@ -122,7 +122,7 @@
 
 <h1>🍄 Super Mario</h1>
 <p class="subtitle">
-  ⁶🤷⁷ 6-7 = move forward &nbsp;·&nbsp; 👏 clap = jump &nbsp;·&nbsp; 👋 wave = power up / fireball
+  ⁶🤷⁷ 6-7 = move forward &nbsp;·&nbsp; 👋 wave = jump &nbsp;·&nbsp; 👏 clap = fireball (need fire flower)
 </p>
 
 <div class="conn-bar">
@@ -166,13 +166,36 @@ const LABEL_CLAP     = 4;  // clap → jump
 
 let device = null;
 let characteristic = null;
-/** Previous BLE activity label (-1 = none yet). Used for jump/clap rising-edge so one gesture = one action. */
+
+// ── 7-sample majority-vote smoothing ───────────────────────
+const MAJORITY_WINDOW = 7;
+const labelWindow = [];  // sliding window of the last N raw labels
+
+function majorityLabel() {
+  const counts = {};
+  for (const l of labelWindow) counts[l] = (counts[l] || 0) + 1;
+  let best = labelWindow[0], bestCount = 0;
+  for (const l in counts) {
+    if (counts[l] > bestCount) { bestCount = counts[l]; best = Number(l); }
+  }
+  return best;
+}
+// ───────────────────────────────────────────────────────────
+
+/** Previous (smoothed) BLE activity label (-1 = none yet). Used for jump
+ *  rising-edge so one wave gesture = one jump. */
 let prevBleLabel = -1;
-/** Consecutive wave labels seen. We require 2 before acting so single-frame misclassifications don't trigger a random powerup. */
-let waveStreak = 0;
-let lastWaveAction = 0;
-const WAVE_CONFIRM_FRAMES = 2;
-const WAVE_COOLDOWN_MS    = 800;
+/** Consecutive clap-as-powerup labels seen. Combined with the moving-majority
+ *  filter below, this is a defense-in-depth against single-frame
+ *  misclassifications triggering a random powerup. */
+let clapStreak = 0;
+let lastClapAction = 0;
+/** Timestamp of the most recent clap packet — read by the idle-flip logic so
+ *  an in-progress clap gesture (powerup) doesn't get counted as "standing
+ *  still". */
+let lastClapAt = 0;
+const CLAP_CONFIRM_FRAMES = 3;   // ~300 ms of sustained clap before anything fires
+const CLAP_COOLDOWN_MS    = 800;
 
 function log(msg, cls = '') {
   const el = document.getElementById('log');
@@ -351,11 +374,17 @@ function onNotification(event) {
   const playable = label === LABEL_WALK_BLE || label === LABEL_SIXSEVEN || label === LABEL_CLAP || label === LABEL_WAVE;
 
   if (isFreshInference || (isCachedStream && (playable || label === 0))) {
-    handlePrediction(label);
+    labelWindow.push(label);
+    if (labelWindow.length > MAJORITY_WINDOW) labelWindow.shift();
+    handlePrediction(majorityLabel());
   }
 }
 
 function handlePrediction(label) {
+  // Idle-grace stamps as soon as a clap label arrives so a clap-in-progress
+  // suspends the flip timer right away.
+  if (label === LABEL_CLAP) lastClapAt = performance.now();
+
   const el = document.getElementById('gestureStatus');
   el.textContent = ACTIVITIES[label] || 'unknown';
   el.className = 'gesture-status';
@@ -367,31 +396,34 @@ function handlePrediction(label) {
   if (label !== LABEL_WALK_BLE && label !== LABEL_SIXSEVEN) {
     mario.walkUntil = 0;
   }
-  // Reset wave streak on any non-wave label so only truly sustained waves count.
-  if (label !== LABEL_WAVE) waveStreak = 0;
+  // Reset clap streak on any non-clap label so only truly sustained claps count.
+  if (label !== LABEL_CLAP) clapStreak = 0;
 
   if (label === LABEL_WALK_BLE || label === LABEL_SIXSEVEN) {
     el.classList.add('walk');
     triggerWalk();
     return;
   }
-  if (label === LABEL_CLAP) {
+  // Wave → jump (rising edge: one wave gesture = one jump).
+  if (label === LABEL_WAVE) {
     el.classList.add('jump');
-    if (prev !== LABEL_CLAP) {
+    if (prev !== LABEL_WAVE) {
       triggerJump();
     }
     return;
   }
-  if (label === LABEL_WAVE) {
+  // Clap → fireball (fire Mario only). There's intentionally no gesture-driven
+  // powerup — power-ups come exclusively from ?-block mushrooms / flowers.
+  // Small or big Mario clapping does nothing.
+  if (label === LABEL_CLAP) {
     el.classList.add('fire');
-    waveStreak++;
+    clapStreak++;
     const now = performance.now();
-    // Require 2+ consecutive wave packets + cooldown so one sustained wave triggers exactly once.
-    if (waveStreak >= WAVE_CONFIRM_FRAMES && now - lastWaveAction > WAVE_COOLDOWN_MS) {
-      lastWaveAction = now;
-      // Context-sensitive: shoot a fireball once at max power, otherwise level up.
-      if (mario.power === 'fire') triggerFire();
-      else                         triggerPowerup();
+    if (mario.power === 'fire'
+        && clapStreak >= CLAP_CONFIRM_FRAMES
+        && now - lastClapAction > CLAP_COOLDOWN_MS) {
+      lastClapAction = now;
+      triggerFire();
     }
     return;
   }
@@ -432,8 +464,10 @@ function setConnected(connected) {
   document.getElementById('btnDisconnect').disabled = !connected;
   if (!connected) {
     prevBleLabel = -1;
-    waveStreak = 0;
-    lastWaveAction = 0;
+    clapStreak = 0;
+    lastClapAction = 0;
+    lastClapAt = 0;
+    labelWindow.length = 0;
   }
 }
 
@@ -466,7 +500,11 @@ const GAME_SPEED       = 0.5;
 /** Standing still on the ground for this long flips Mario's facing direction —
  *  the only way to traverse "backwards" given the BLE gesture model has no
  *  backward walk. */
-const IDLE_FLIP_MS     = 3000;
+const IDLE_FLIP_MS     = 1500;
+/** While the player is clapping (powerup / fireball gesture), don't count it
+ *  as idle. Clap packets arrive every ~50-100 ms; this grace is the tolerance
+ *  between consecutive packets before we consider the clap finished. */
+const CLAP_IDLE_GRACE_MS = 500;
 
 // ── Level definition ───────────────────────────────────────
 // All coords are in TILES; game world is 64 × 14 tiles = 1024 × 224 px
@@ -671,8 +709,6 @@ let timeLeft = TIMER_START;
 let lastTimeTick = 0;
 let gameState = 'ready'; // 'ready' | 'playing' | 'gameover' | 'win'
 let startTime = 0;
-/** Block powerup gestures briefly after restart so cached BLE wave packets can't instantly grow Mario. */
-let powerupGraceUntil = 0;
 
 function resetMario(keepPower = false) {
   if (!keepPower) mario.power = 'small';
@@ -705,7 +741,6 @@ function resetLevel(keepPower = false, keepScore = false) {
   lastTimeTick = performance.now();
   resetMario(keepPower);
   gameState = 'ready';
-  powerupGraceUntil = performance.now() + 1500;
   stopMusic();
   updateHUD();
 }
@@ -763,25 +798,6 @@ function triggerJump() {
     mario.jumpingForward = true;
     sfxJump();
   }
-}
-function triggerPowerup() {
-  if (gameState !== 'playing') return;
-  if (performance.now() < powerupGraceUntil) return;
-  if (mario.power === 'small') {
-    mario.power = 'big';
-    setMarioSize();
-    mario.y -= 14;  // keep feet on ground after growing
-    mario.invulnUntil = performance.now() + 600;  // brief flash as visual feedback
-    log('🍄 Power up!', 'game');
-    sfxPowerup();
-  } else if (mario.power === 'big') {
-    mario.power = 'fire';
-    setMarioSize();
-    mario.invulnUntil = performance.now() + 600;
-    log('🌼 Fire power!', 'game');
-    sfxPowerup();
-  }
-  // 'fire' is max — no-op
 }
 function triggerFire() {
   if (gameState !== 'playing') return;
@@ -1271,10 +1287,12 @@ function update(dt) {
     mario.vx = JUMP_FORWARD_SPEED * mario.facing;  // re-enforce each frame so pipe X-collisions can't zero it out
   }
 
-  // Idle-flip: 3 seconds of standing still on the ground turns Mario around.
-  // This is the "backwards" affordance — there's no backward gesture, so the
-  // player flips by waiting. Skip while in the air or actively walking.
-  if (mario.onGround && !walking && Math.abs(mario.vx) < 0.01) {
+  // Idle-flip: 1.5 s of standing still on the ground turns Mario around. This
+  // is the "backwards" affordance — there's no backward gesture, so the player
+  // flips by waiting. An active clap gesture (powerup/fireball) doesn't count
+  // as idle, even though it produces no walk velocity.
+  const recentlyClapped = now - lastClapAt < CLAP_IDLE_GRACE_MS;
+  if (mario.onGround && !walking && !recentlyClapped && Math.abs(mario.vx) < 0.01) {
     if (mario.idleStart === 0) {
       mario.idleStart = now;
     } else if (now - mario.idleStart > IDLE_FLIP_MS) {
